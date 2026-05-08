@@ -9032,855 +9032,16 @@ window.checkSupabaseConnectionNow = async function(){
 </script>
 
 
-<script>
-/* =========================================================
-   UPGRO PATCH — HARD-CODED APPS SCRIPT URL FOR MEET LINK
-   Scope: only fixes Google Meet backend URL detection.
-   ========================================================= */
-(function(){
-  var FIXED_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
-  var URL_KEYS = [
-    "ugv4_url",
-    "upgro_url",
-    "upgro_script_url",
-    "apps_script_url",
-    "upgro_apps_script_url",
-    "mission_control_script_url"
-  ];
 
-  function saveFixedUrl(){
-    URL_KEYS.forEach(function(key){
-      try { localStorage.setItem(key, FIXED_APPS_SCRIPT_URL); } catch(e) {}
-    });
 
-    try { SURL = FIXED_APPS_SCRIPT_URL; } catch(e) {}
 
-    var input = document.getElementById("url-in");
-    if(input) input.value = FIXED_APPS_SCRIPT_URL;
 
-    var st = document.getElementById("url-st");
-    if(st) st.textContent = "✅ Apps Script URL auto-saved.";
 
-    var cst = document.getElementById("conn-st");
-    if(cst){
-      cst.className = "cok";
-      cst.textContent = "✅ Connected";
-    }
 
-    var meetStatus = document.getElementById("ug-meet-auto-status");
-    if(meetStatus && /URL not found|URL missing/i.test(meetStatus.textContent || "")){
-      meetStatus.textContent = "Google Meet link will be generated automatically while saving, then sent in invite emails.";
-    }
 
-    return FIXED_APPS_SCRIPT_URL;
-  }
 
-  window.UPGRO_APPS_SCRIPT_URL = FIXED_APPS_SCRIPT_URL;
 
-  window.upgroResolveAppsScriptUrl = function(){
-    return saveFixedUrl();
-  };
 
-  window.forceSaveAppsScriptUrlNow = function(){
-    var url = saveFixedUrl();
-    alert("Apps Script URL saved: " + url);
-    return url;
-  };
-
-  var oldTestConn = window.testConn;
-  window.testConn = async function(){
-    saveFixedUrl();
-    if(typeof oldTestConn === "function"){
-      return oldTestConn.apply(this, arguments);
-    }
-    return true;
-  };
-
-  document.addEventListener("DOMContentLoaded", function(){
-    saveFixedUrl();
-    setTimeout(saveFixedUrl, 600);
-    setTimeout(saveFixedUrl, 1600);
-  });
-
-  saveFixedUrl();
-})();
-</script>
-
-
-<script>
-/* UPGRO FINAL DIRECT MEET BUTTON OVERRIDE */
-(function(){
-  var FIXED_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
-
-  function byId(id){ return document.getElementById(id); }
-  function val(id){ var el = byId(id); return el ? String(el.value || "").trim() : ""; }
-  function msg(t){ try{ if(typeof toast === "function") toast(t); else console.log(t); }catch(e){ console.log(t); } }
-
-  function saveUrlEverywhere(){
-    try {
-      ["ugv4_url","upgro_url","upgro_script_url","apps_script_url","upgro_apps_script_url","mission_control_script_url"].forEach(function(k){
-        localStorage.setItem(k, FIXED_URL);
-      });
-      SURL = FIXED_URL;
-    } catch(e) {}
-    window.UPGRO_APPS_SCRIPT_URL = FIXED_URL;
-    return FIXED_URL;
-  }
-
-  async function directGenerateMeet(){
-    saveUrlEverywhere();
-    var st = byId("ug-meet-auto-status");
-    var loc = byId("mtg-loc");
-    var title = val("mtg-title");
-    var date = val("mtg-date");
-    var time = val("mtg-time");
-
-    if(!title){ msg("⚠ Meeting title required"); return ""; }
-    if(!date || !time){ msg("⚠ Date and time required"); return ""; }
-
-    var attendees = [];
-    try {
-      attendees = Array.from(selectedAttendees || []).map(function(email){
-        var e = (typeof empByEmail === "function" ? (empByEmail(email) || {}) : {});
-        return { email: email, name: e.name || email, desig: e.desig || e.role || "Team" };
-      });
-    } catch(e) {}
-
-    var dur = val("mtg-dur") || "30 minutes";
-    var mins = parseInt((String(dur).match(/\d+/) || ["30"])[0], 10) || 30;
-    if(/hour|hr/i.test(dur)) mins = mins * 60;
-
-    var payload = {
-      action: "createCalendarMeeting",
-      title: title,
-      datetime: date + "T" + time,
-      durationMinutes: mins,
-      attendeeList: attendees,
-      agenda: val("mtg-agenda"),
-      notes: val("mtg-notes"),
-      organizer: (typeof currentUser === "function" && currentUser() && currentUser().name) || "UpGro Media"
-    };
-
-    try {
-      if(st) st.textContent = "Generating Google Meet link...";
-      var res = await fetch(FIXED_URL, {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-      var raw = await res.text();
-      var data = {};
-      try { data = JSON.parse(raw); } catch(e) {
-        console.error("Apps Script raw response:", raw);
-      }
-      var link = data.meetLink || data.hangoutLink || data.conferenceLink || data.link || data.url || "";
-      if(link && /meet\.google\.com/i.test(link)){
-        if(loc) loc.value = link;
-        if(st) st.textContent = "✅ Google Meet link generated and added.";
-        msg("✅ Google Meet link generated");
-        return link;
-      }
-      console.error("Apps Script returned without meet link:", data, raw);
-      if(st) st.textContent = "❌ Meet link not returned by Apps Script. Check deployment/new version and Calendar permission.";
-      msg("❌ Apps Script returned no meet link");
-      return "";
-    } catch(err) {
-      console.error("Meet fetch failed:", err);
-      if(st) st.textContent = "❌ Meet generation failed: " + (err.message || err);
-      msg("❌ Meet generation failed");
-      return "";
-    }
-  }
-
-  window.upgroResolveAppsScriptUrl = saveUrlEverywhere;
-  window.forceSaveAppsScriptUrlNow = saveUrlEverywhere;
-  window.ugGenerateMeetLinkFromModal = directGenerateMeet;
-
-  function bind(){
-    saveUrlEverywhere();
-    var b = byId("ug-meet-generate-now");
-    if(b){
-      b.onclick = function(e){ if(e) e.preventDefault(); return directGenerateMeet(); };
-    }
-    var st = byId("ug-meet-auto-status");
-    if(st && /URL not found|URL missing|Existing saved URL/i.test(st.textContent || "")){
-      st.textContent = "Google Meet link will be generated automatically while saving, then sent in invite emails.";
-    }
-  }
-
-  var oldOpen = window.openAddMeeting;
-  window.openAddMeeting = function(){
-    var r = oldOpen ? oldOpen.apply(this, arguments) : undefined;
-    setTimeout(bind, 50);
-    setTimeout(bind, 300);
-    setTimeout(bind, 900);
-    return r;
-  };
-
-  var oldSave = window.saveMeeting;
-  window.saveMeeting = async function(){
-    saveUrlEverywhere();
-    try {
-      var chk = byId("mtg-auto-meet");
-      var loc = byId("mtg-loc");
-      if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value || "")){
-        await directGenerateMeet();
-      }
-    } catch(e) { console.warn(e); }
-    return oldSave ? oldSave.apply(this, arguments) : undefined;
-  };
-
-  document.addEventListener("DOMContentLoaded", function(){
-    bind();
-    setTimeout(bind, 800);
-    setTimeout(bind, 2000);
-  });
-
-  saveUrlEverywhere();
-  setInterval(bind, 2000);
-})();
-</script>
-
-
-<script>
-/* =========================================================
-   UPGRO FINAL SUPABASE TASK WRITE + STATUS + AUTO ACCEPT PATCH
-   Scope:
-   - New assigned tasks are saved in Supabase tasks table.
-   - Accept / Reject / Done / Submit Work status syncs to Supabase.
-   - Auto accept after 20 minutes runs from Supabase data.
-   - Meeting Generate Now uses fixed Apps Script URL and shows exact backend error.
-   ========================================================= */
-(function(){
-  if(window.__UPGRO_TASK_SUPABASE_FINAL_PATCH__) return;
-  window.__UPGRO_TASK_SUPABASE_FINAL_PATCH__ = true;
-
-  var SUPA_URL = "https://lseqfkpwdzqzamypsewc.supabase.co";
-  var SUPA_KEY = "sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ";
-  var APPS_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
-
-  function el(id){ return document.getElementById(id); }
-  function T(v){ return String(v == null ? "" : v).trim(); }
-  function E(v){ return T(v).toLowerCase(); }
-  function toast2(msg){ try{ if(typeof toast === "function") toast(msg); else console.log(msg); }catch(e){ console.log(msg); } }
-  function getCuEmail(){ try{ return E((cu && cu.email) || ""); }catch(e){ return ""; } }
-  function getCuName(){ try{ return T((cu && cu.name) || "UpGro Media"); }catch(e){ return "UpGro Media"; } }
-  function safeJson(obj){ try{ return JSON.parse(JSON.stringify(obj || {})); }catch(e){ return {}; } }
-
-  function saveAppsUrl(){
-    try{
-      ["ugv4_url","upgro_url","upgro_script_url","apps_script_url","upgro_apps_script_url","mission_control_script_url"].forEach(function(k){
-        localStorage.setItem(k, APPS_URL);
-      });
-      SURL = APPS_URL;
-    }catch(e){}
-    window.UPGRO_APPS_SCRIPT_URL = APPS_URL;
-    return APPS_URL;
-  }
-
-  async function loadSupabaseLib(){
-    if(window.supabase && window.supabase.createClient) return;
-    await new Promise(function(resolve,reject){
-      var existing = document.querySelector("script[data-upgro-supabase]");
-      if(existing){
-        existing.addEventListener("load", resolve);
-        existing.addEventListener("error", reject);
-        setTimeout(resolve, 1000);
-        return;
-      }
-      var s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-      s.async = true;
-      s.setAttribute("data-upgro-supabase","1");
-      s.onload = resolve;
-      s.onerror = function(){ reject(new Error("Supabase library load failed")); };
-      document.head.appendChild(s);
-    });
-  }
-
-  async function taskSB(){
-    await loadSupabaseLib();
-    if(!window.__upgroTaskFinalSB){
-      window.__upgroTaskFinalSB = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
-        auth: { persistSession:true, autoRefreshToken:true }
-      });
-    }
-    return window.__upgroTaskFinalSB;
-  }
-
-  function capStatus(s){
-    s = T(s || "Assigned").toLowerCase();
-    if(s === "completed" || s === "done") return "Completed";
-    if(s === "rejected" || s === "reject") return "Rejected";
-    if(s === "in progress" || s === "inprogress" || s === "started" || s === "working") return "In Progress";
-    return "Assigned";
-  }
-
-  function uiStatus(s){
-    s = capStatus(s).toLowerCase();
-    if(s === "in progress") return "in progress";
-    if(s === "completed") return "completed";
-    if(s === "rejected") return "rejected";
-    return "assigned";
-  }
-
-  function toISODate(v){
-    v = T(v);
-    if(!v) return null;
-    if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-    var m = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
-    if(m){
-      return m[3] + "-" + String(m[2]).padStart(2,"0") + "-" + String(m[1]).padStart(2,"0");
-    }
-    var d = new Date(v);
-    if(!isNaN(d)){
-      return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
-    }
-    return null;
-  }
-
-  function extractFromDescription(desc, label){
-    desc = T(desc);
-    var re = new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*:\\s*([^\\n]+)", "i");
-    var m = desc.match(re);
-    return m ? T(m[1]) : "";
-  }
-
-  function sourceIdFromRow(row){
-    var raw = row.raw_data || {};
-    return T(row.source_id || raw.taskCode || raw.taskId || raw.TaskID || extractFromDescription(row.description, "Source ID") || row.id);
-  }
-
-  function nameByEmail(em){
-    em = E(em);
-    try{ if(typeof uname === "function") return uname(em); }catch(e){}
-    try{
-      var found = (Array.isArray(empReg) ? empReg : []).find(function(x){ return E(x.email) === em; });
-      if(found) return found.name || em.split("@")[0];
-    }catch(e){}
-    return em ? em.split("@")[0] : "";
-  }
-
-  function desigByEmail(em){
-    em = E(em);
-    try{ if(typeof udesig === "function") return udesig(em); }catch(e){}
-    try{
-      var found = (Array.isArray(empReg) ? empReg : []).find(function(x){ return E(x.email) === em; });
-      if(found) return found.desig || found.designation || found.role || "";
-    }catch(e){}
-    return "";
-  }
-
-  function displayName(name, em, desig){
-    try{ if(typeof normalizeDisplayName === "function") return normalizeDisplayName(name, em, desig); }catch(e){}
-    return T(name) || nameByEmail(em) || em;
-  }
-
-  function mapSqlTask(row){
-    var raw = row.raw_data || {};
-    var id = sourceIdFromRow(row);
-    var desc = T(row.description || "");
-    var assignedToEmail = E(row.assigned_to_email || raw.email || raw.assignedToEmail || raw.empEmail || raw.EmployeeEmail || raw["Assigned To Email"] || "");
-    var assignedByEmail = E(row.assigned_by_email || raw.assignedByEmail || raw.assignedBy || "");
-    var assignedToName = T(row.assigned_to_name || raw.empName || raw.assignedTo || raw.assignedToName || raw["Assigned To Name"] || nameByEmail(assignedToEmail));
-    var assignedByName = T(row.assigned_by_name || raw.assignedByLabel || raw.assignedBy || raw.by || nameByEmail(assignedByEmail));
-    var status = uiStatus(row.status || raw.status || raw.Status);
-    var acceptedAt = raw.acceptedAt || raw.AcceptedAt || raw.tatStartAt || raw.TatStartAt || "";
-    if(status === "in progress" && !acceptedAt) acceptedAt = row.updated_at || row.created_at || "";
-    var totalUnits = Number(raw.totalUnits || raw.Count || extractFromDescription(desc, "Total Units / Count") || 1) || 1;
-    var doneUnits = Number(raw.doneUnits || raw.DoneQty || extractFromDescription(desc, "Done Units") || 0) || 0;
-    var pendingUnits = Number(raw.pendingUnits || raw.PendingQty || Math.max(0, totalUnits - doneUnits)) || 0;
-
-    var t = {
-      _source:"supabase",
-      sqlId: row.id || "",
-      id: id,
-      taskId: id,
-      taskCode: id,
-      sourceId: id,
-      task: T(row.title || raw.task || raw.Task || raw.TaskName || "Task " + id),
-      title: T(row.title || raw.task || raw.Task || raw.TaskName || "Task " + id),
-      description: desc,
-      notes: T(row.remarks || raw.notes || raw.Notes || desc),
-      references: T(raw.references || raw.References || extractFromDescription(desc, "References")),
-      adCopy: T(raw.adCopy || raw.AdCopy || ""),
-      driveLink: T(row.work_link || raw.driveLink || raw.DriveLink || extractFromDescription(desc, "Drive Link")),
-      email: assignedToEmail,
-      assignedToEmail: assignedToEmail,
-      empEmail: assignedToEmail,
-      empName: assignedToName,
-      assignedTo: assignedToName,
-      assignedToLabel: displayName(assignedToName, assignedToEmail, desigByEmail(assignedToEmail)),
-      by: assignedByName,
-      assignedBy: assignedByName,
-      assignedByEmail: assignedByEmail,
-      assignedByLabel: assignedByName,
-      priority: T(row.priority || raw.priority || "Medium").toLowerCase(),
-      status: status,
-      adate: T(row.start_date || raw.adate || raw.AssignDate || ""),
-      ddate: T(row.due_date || raw.ddate || raw.DueDate || ""),
-      ts: T(row.created_at || raw.ts || raw.Timestamp || ""),
-      acceptedAt: T(acceptedAt),
-      completedAt: T(row.completed_at || raw.completedAt || raw.CompletedAt || ""),
-      rejectedAt: T(raw.rejectedAt || raw.RejectedAt || ""),
-      rejectReason: T(raw.rejectReason || raw.RejectReason || ""),
-      autoAccepted: !!(raw.autoAccepted || raw.AutoAccepted),
-      tatStartAt: T(raw.tatStartAt || raw.TatStartAt || acceptedAt),
-      totalUnits: totalUnits,
-      doneUnits: doneUnits,
-      pendingUnits: pendingUnits,
-      desig: desigByEmail(assignedToEmail),
-      changeCount: Number(raw.changeCount || raw.ChangeCount || 0) || 0,
-      rawSql: row
-    };
-    try{ if(typeof ensureTaskMeta === "function") t = ensureTaskMeta(t); }catch(e){}
-    return t;
-  }
-
-  function taskToDb(t){
-    var id = T(t.id || t.taskCode || t.taskId || "");
-    var assignedEmail = E(t.email || t.assignedToEmail || t.empEmail);
-    var assignedName = T(t.assignedToLabel || t.empName || t.assignedTo || nameByEmail(assignedEmail));
-    var byName = T(t.assignedByLabel || t.by || t.assignedBy || getCuName());
-    var byEmail = E(t.assignedByEmail || getCuEmail());
-    var status = capStatus(t.status || "Assigned");
-    var total = Number(t.totalUnits || 1) || 1;
-    var done = Number(t.doneUnits || 0) || 0;
-    var pending = Number(t.pendingUnits);
-    if(!Number.isFinite(pending)) pending = Math.max(0,total-done);
-
-    var raw = {
-      taskCode:id,
-      taskId:id,
-      TaskID:id,
-      task:T(t.task || t.title),
-      Task:T(t.task || t.title),
-      TaskName:T(t.task || t.title),
-      email:assignedEmail,
-      assignedToEmail:assignedEmail,
-      empEmail:assignedEmail,
-      empName:assignedName,
-      assignedTo:assignedName,
-      assignedToLabel:assignedName,
-      by:byName,
-      assignedBy:byName,
-      assignedByEmail:byEmail,
-      priority:T(t.priority || "Medium"),
-      status:status,
-      Status:status,
-      adate:T(t.adate || ""),
-      ddate:T(t.ddate || ""),
-      notes:T(t.notes || ""),
-      references:T(t.references || ""),
-      adCopy:T(t.adCopy || ""),
-      driveLink:T(t.driveLink || ""),
-      totalUnits:total,
-      doneUnits:done,
-      pendingUnits:pending,
-      acceptedAt:T(t.acceptedAt || ""),
-      AcceptedAt:T(t.acceptedAt || ""),
-      completedAt:T(t.completedAt || ""),
-      CompletedAt:T(t.completedAt || ""),
-      rejectedAt:T(t.rejectedAt || ""),
-      RejectedAt:T(t.rejectedAt || ""),
-      rejectReason:T(t.rejectReason || ""),
-      RejectReason:T(t.rejectReason || ""),
-      autoAccepted:!!t.autoAccepted,
-      AutoAccepted:!!t.autoAccepted,
-      tatStartAt:T(t.tatStartAt || t.acceptedAt || ""),
-      TatStartAt:T(t.tatStartAt || t.acceptedAt || ""),
-      changeCount:Number(t.changeCount || 0) || 0,
-      Timestamp:T(t.ts || new Date().toISOString())
-    };
-
-    return {
-      source_id:id,
-      title:T(t.task || t.title || "Task " + id),
-      description:[
-        "Source ID: " + id,
-        "Total Units / Count: " + total,
-        "Done Units: " + done,
-        "Pending Units: " + pending,
-        t.references ? "References: " + T(t.references) : "",
-        t.driveLink ? "Drive Link: " + T(t.driveLink) : "",
-        t.notes ? "Notes: " + T(t.notes) : ""
-      ].filter(Boolean).join("\n"),
-      assigned_by_email:byEmail || null,
-      assigned_to_email:assignedEmail || null,
-      assigned_by_name:byName || null,
-      assigned_to_name:assignedName || null,
-      priority:T(t.priority || "Medium"),
-      status:status,
-      due_date:toISODate(t.ddate),
-      start_date:toISODate(t.adate),
-      completed_at:status === "Completed" ? (new Date()).toISOString() : null,
-      task_type:T(t.taskType || ""),
-      work_link:T(t.driveLink || ""),
-      remarks:T(t.notes || ""),
-      raw_data:raw
-    };
-  }
-
-  async function upsertTaskToSupabase(t){
-    var client = await taskSB();
-    var row = taskToDb(t);
-    if(!row.source_id) throw new Error("Task source_id missing");
-    var found = await client.from("tasks").select("id,raw_data").eq("source_id", row.source_id).limit(1);
-    if(found.error) throw found.error;
-
-    if(found.data && found.data.length){
-      var prevRaw = found.data[0].raw_data || {};
-      row.raw_data = Object.assign({}, prevRaw, row.raw_data);
-      var upd = await client.from("tasks").update(row).eq("id", found.data[0].id).select("*").single();
-      if(upd.error) throw upd.error;
-      return upd.data;
-    }else{
-      var ins = await client.from("tasks").insert([row]).select("*").single();
-      if(ins.error) throw ins.error;
-      return ins.data;
-    }
-  }
-
-  async function updateTaskStatusSupabase(id, patch){
-    id = T(id);
-    if(!id) return null;
-    var client = await taskSB();
-    var found = await client.from("tasks").select("*").eq("source_id", id).limit(1);
-    if(found.error) throw found.error;
-    if(!found.data || !found.data.length){
-      var local = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === id || T(x.taskCode) === id || T(x.taskId) === id; });
-      if(local){
-        Object.assign(local, patch || {});
-        return await upsertTaskToSupabase(local);
-      }
-      return null;
-    }
-    var row = found.data[0];
-    var raw = Object.assign({}, row.raw_data || {}, safeJson(patch.raw_data || {}));
-    delete patch.raw_data;
-    var update = Object.assign({}, patch, { raw_data: raw });
-    var res = await client.from("tasks").update(update).eq("id", row.id).select("*").single();
-    if(res.error) throw res.error;
-    return res.data;
-  }
-
-  window.upgroLoadSupabaseTasksNow = async function(quiet){
-    try{
-      var client = await taskSB();
-      var res = await client.from("tasks").select("*").order("created_at", {ascending:false}).limit(5000);
-      if(res.error) throw res.error;
-      var mapped = (res.data || []).map(mapSqlTask).filter(function(t){ return !!t.id; });
-      var seen = new Set();
-      mapped = mapped.filter(function(t){
-        var key = T(t.id);
-        if(seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-      try{ allTasks = mapped; }catch(e){}
-      window.allTasks = mapped;
-      try{ if(typeof populateTaskFilterOptions === "function") populateTaskFilterOptions(); }catch(e){}
-      try{ if(typeof refillEmpDropdown === "function") refillEmpDropdown(); }catch(e){}
-      try{ if(typeof buildUI === "function") buildUI(); }catch(e){}
-      try{ if(typeof renderAllTasks === "function") renderAllTasks(); }catch(e){}
-      try{ if(typeof renderMyTasks === "function") renderMyTasks(); }catch(e){}
-      var sync = el("tb-sync");
-      if(sync) sync.textContent = "🟢 Supabase · " + mapped.length + " tasks";
-      if(!quiet) toast2("✅ Supabase tasks loaded: " + mapped.length);
-      return mapped;
-    }catch(err){
-      console.error("Supabase task load failed", err);
-      if(!quiet) toast2("❌ Supabase tasks failed: " + (err.message || err));
-      return [];
-    }
-  };
-
-  var oldLoadData = window.loadData;
-  window.loadData = async function(){
-    var r;
-    try{ if(typeof oldLoadData === "function") r = await oldLoadData.apply(this, arguments); }catch(e){ console.warn("old loadData failed", e); }
-    await window.upgroLoadSupabaseTasksNow(true);
-    return r;
-  };
-
-  var oldSaveTask = window.saveTask;
-  window.saveTask = async function(){
-    var before = new Set((Array.isArray(allTasks) ? allTasks : []).map(function(t){ return T(t.id || t.taskCode || t.taskId); }));
-    var formSnapshot = {
-      task:T((el("add-task")||{value:""}).value),
-      email:E((el("add-emp")||{value:""}).value),
-      pri:T((el("add-pri")||{value:"Medium"}).value),
-      adate:T((el("add-ad")||{value:""}).value),
-      ddate:T((el("add-dd")||{value:""}).value),
-      note:T((el("add-note")||{value:""}).value),
-      references:T((el("add-ref")||{value:""}).value),
-      adCopy:T((el("add-copy")||{value:""}).value),
-      driveLink:T((el("add-drive-link")||{value:""}).value),
-      units:Number((el("add-units")||{value:"1"}).value || 1) || 1,
-      editId:T(window.editTaskId || "")
-    };
-
-    var result;
-    if(typeof oldSaveTask === "function") result = await oldSaveTask.apply(this, arguments);
-
-    var after = Array.isArray(allTasks) ? allTasks : [];
-    var saved = null;
-    if(formSnapshot.editId){
-      saved = after.find(function(t){ return T(t.id || t.taskCode || t.taskId) === formSnapshot.editId; });
-    }
-    if(!saved){
-      saved = after.find(function(t){
-        var id = T(t.id || t.taskCode || t.taskId);
-        return !before.has(id) && E(t.email || t.assignedToEmail || t.empEmail) === formSnapshot.email;
-      });
-    }
-    if(!saved){
-      var id = formSnapshot.editId || ("TASK-" + Date.now().toString(36).toUpperCase());
-      saved = {
-        id:id, taskCode:id, taskId:id,
-        task:formSnapshot.task,
-        title:formSnapshot.task,
-        email:formSnapshot.email,
-        assignedToEmail:formSnapshot.email,
-        empEmail:formSnapshot.email,
-        empName:nameByEmail(formSnapshot.email),
-        assignedTo:nameByEmail(formSnapshot.email),
-        assignedToLabel:displayName(nameByEmail(formSnapshot.email), formSnapshot.email, desigByEmail(formSnapshot.email)),
-        by:getCuName(),
-        assignedBy:getCuName(),
-        assignedByEmail:getCuEmail(),
-        priority:formSnapshot.pri,
-        status:"assigned",
-        adate:formSnapshot.adate,
-        ddate:formSnapshot.ddate,
-        notes:formSnapshot.note,
-        references:formSnapshot.references,
-        adCopy:formSnapshot.adCopy,
-        driveLink:formSnapshot.driveLink,
-        totalUnits:formSnapshot.units,
-        doneUnits:0,
-        pendingUnits:formSnapshot.units,
-        ts:new Date().toISOString(),
-        desig:desigByEmail(formSnapshot.email)
-      };
-    }
-
-    try{
-      await upsertTaskToSupabase(saved);
-      await window.upgroLoadSupabaseTasksNow(true);
-      toast2("✅ Task saved in Supabase and portal");
-    }catch(err){
-      console.error("Supabase save failed", err);
-      toast2("⚠ Email sent, but Supabase task save failed: " + (err.message || err));
-    }
-    return result;
-  };
-
-  var oldQAccept = window.qAccept;
-  window.qAccept = async function(id, task, em, adate, ddate, isAuto){
-    saveAppsUrl();
-    var now = new Date().toLocaleString("en-IN");
-    try{
-      var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === T(id); });
-      if(t){ t.status = "in progress"; t.acceptedAt = now; t.tatStartAt = now; t.autoAccepted = !!isAuto; }
-      await updateTaskStatusSupabase(id, {
-        status:"In Progress",
-        raw_data:{ status:"In Progress", Status:"In Progress", acceptedAt:now, AcceptedAt:now, tatStartAt:now, TatStartAt:now, autoAccepted:!!isAuto, AutoAccepted:!!isAuto }
-      });
-    }catch(err){ console.error("Supabase accept failed", err); }
-    var r = oldQAccept ? await oldQAccept.apply(this, arguments) : undefined;
-    await window.upgroLoadSupabaseTasksNow(true);
-    return r;
-  };
-
-  var oldQReject = window.qReject;
-  window.qReject = async function(id){
-    var reason = "";
-    var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === T(id); });
-    if(!t) return oldQReject ? oldQReject.apply(this, arguments) : undefined;
-
-    // Use old prompt flow, but intercept prompt result by doing our own flow to keep Supabase exact.
-    reason = (prompt("Reject reason likho:","") || "").trim();
-    if(!reason){ toast2("⚠ Reject reason required"); return; }
-    var now = new Date().toLocaleString("en-IN");
-    t.status = "rejected"; t.rejectedAt = now; t.rejectReason = reason;
-    try{ if(typeof statusOverrides !== "undefined") statusOverrides.set(id,{status:"rejected",rejectedAt:now,rejectReason:reason}); }catch(e){}
-    try{ if(typeof buildUI === "function") buildUI(); }catch(e){}
-    try{
-      await updateTaskStatusSupabase(id, {
-        status:"Rejected",
-        remarks:reason,
-        raw_data:{ status:"Rejected", Status:"Rejected", rejectedAt:now, RejectedAt:now, rejectReason:reason, RejectReason:reason }
-      });
-      await fetch(APPS_URL,{method:"POST",body:JSON.stringify({action:"rejectTask",id:id,RejectReason:reason,rejectReason:reason,status:"Rejected",Status:"Rejected"})}).catch(function(){});
-      toast2("⛔ Task rejected");
-      await window.upgroLoadSupabaseTasksNow(true);
-    }catch(err){
-      console.error(err);
-      toast2("❌ Reject sync failed: " + (err.message || err));
-    }
-  };
-
-  var oldQDone = window.qDone;
-  window.qDone = async function(id){
-    var nowIso = new Date().toISOString();
-    var nowText = new Date().toLocaleString("en-IN");
-    try{
-      var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === T(id); });
-      if(t){ t.status = "completed"; t.completedAt = nowText; }
-      await updateTaskStatusSupabase(id, {
-        status:"Completed",
-        completed_at:nowIso,
-        raw_data:{ status:"Completed", Status:"Completed", completedAt:nowText, CompletedAt:nowText }
-      });
-    }catch(err){ console.error("Supabase done failed", err); }
-    var r = oldQDone ? await oldQDone.apply(this, arguments) : undefined;
-    await window.upgroLoadSupabaseTasksNow(true);
-    return r;
-  };
-
-  var oldSubmitWork = window.submitWork;
-  window.submitWork = async function(){
-    var taskId = T((el("sub-task")||{value:""}).value);
-    var status = T((el("sub-stat")||{value:"Completed"}).value);
-    var notes = T((el("sub-notes")||{value:""}).value);
-    var driveLink = "";
-    try{ if(typeof getAllDriveLinks === "function") driveLink = getAllDriveLinks(); }catch(e){}
-    var result = oldSubmitWork ? await oldSubmitWork.apply(this, arguments) : undefined;
-    try{
-      var st = status === "Completed" ? "Completed" : "In Progress";
-      var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === taskId; });
-      if(t){ t.status = uiStatus(st); t.driveLink = driveLink || t.driveLink; t.notes = notes || t.notes; }
-      await updateTaskStatusSupabase(taskId, {
-        status:st,
-        work_link:driveLink || null,
-        remarks:notes || null,
-        completed_at:st === "Completed" ? new Date().toISOString() : null,
-        raw_data:{ status:st, Status:st, driveLink:driveLink, DriveLink:driveLink, notes:notes, Notes:notes, completedAt:st === "Completed" ? new Date().toLocaleString("en-IN") : "" }
-      });
-      await window.upgroLoadSupabaseTasksNow(true);
-    }catch(err){ console.error("Supabase submitWork failed", err); }
-    return result;
-  };
-
-  async function autoAcceptDueTasks(){
-    try{
-      var list = Array.isArray(allTasks) ? allTasks : [];
-      var now = Date.now();
-      for(var i=0; i<list.length; i++){
-        var t = list[i];
-        var st = uiStatus(t.status);
-        if(st !== "assigned") continue;
-        if(t.acceptedAt || t.autoAccepted) continue;
-        try{ if(typeof taskBelongsToCurrentUser === "function" && !taskBelongsToCurrentUser(t)) continue; }catch(e){}
-        var created = t.ts || t.created_at || (t.rawSql && t.rawSql.created_at) || t.adate || "";
-        var d = new Date(created);
-        if(isNaN(d)) {
-          try{ if(typeof parseTaskTimestamp === "function") d = parseTaskTimestamp(t); }catch(e){}
-        }
-        if(!d || isNaN(d)) continue;
-        if(now - d.getTime() >= 20*60*1000){
-          await window.qAccept(t.id, (typeof getTaskDisplayName === "function" ? getTaskDisplayName(t) : t.task), t.email, t.adate, t.ddate, true);
-        }
-      }
-    }catch(err){ console.error("Auto accept failed", err); }
-  }
-  window.upgroProcessAutoAcceptsNow = autoAcceptDueTasks;
-
-  // Direct meeting button handler with exact backend error.
-  async function directGenerateMeetFinal(){
-    saveAppsUrl();
-    var st = el("ug-meet-auto-status"), loc = el("mtg-loc");
-    var title = T((el("mtg-title")||{value:""}).value);
-    var date = T((el("mtg-date")||{value:""}).value);
-    var time = T((el("mtg-time")||{value:""}).value);
-    if(!title){ toast2("⚠ Meeting title required"); return ""; }
-    if(!date || !time){ toast2("⚠ Date and time required"); return ""; }
-    var attendees = [];
-    try{
-      attendees = Array.from(selectedAttendees || []).map(function(x){
-        var emp = (typeof empByEmail === "function" ? empByEmail(x) : null) || {};
-        return {email:x, name:emp.name || x, desig:emp.desig || emp.role || "Team"};
-      });
-    }catch(e){}
-    var dur = T((el("mtg-dur")||{value:"30 minutes"}).value);
-    var mins = parseInt((dur.match(/\d+/)||["30"])[0],10)||30;
-    if(/hour|hr/i.test(dur)) mins *= 60;
-    var payload = { action:"createCalendarMeeting", title:title, datetime:date+"T"+time, durationMinutes:mins, attendeeList:attendees, agenda:T((el("mtg-agenda")||{value:""}).value), notes:T((el("mtg-notes")||{value:""}).value), organizer:getCuName() };
-    try{
-      if(st) st.textContent = "Generating Google Meet link...";
-      var res = await fetch(APPS_URL, { method:"POST", body:JSON.stringify(payload) });
-      var raw = await res.text();
-      var d = {};
-      try{ d = JSON.parse(raw); }catch(e){}
-      var link = d.meetLink || d.hangoutLink || d.conferenceLink || d.link || d.url || "";
-      if(link && /meet\.google\.com/i.test(link)){
-        if(loc) loc.value = link;
-        if(st) st.textContent = "✅ Google Meet link generated and added.";
-        toast2("✅ Google Meet link generated");
-        return link;
-      }
-      var detail = d.error || d.message || raw.slice(0,180) || "No meetLink returned";
-      if(st) st.textContent = "❌ Meet backend error: " + detail;
-      console.error("Meet backend did not return link:", d, raw);
-      toast2("❌ Meet backend error. Apps Script deploy/new version check karo.");
-      return "";
-    }catch(err){
-      console.error(err);
-      if(st) st.textContent = "❌ Meet fetch failed: " + (err.message || err);
-      toast2("❌ Meet fetch failed");
-      return "";
-    }
-  }
-  window.ugGenerateMeetLinkFromModal = directGenerateMeetFinal;
-
-  function bindMeetButton(){
-    saveAppsUrl();
-    var b = el("ug-meet-generate-now");
-    if(b) b.onclick = function(e){ if(e) e.preventDefault(); return directGenerateMeetFinal(); };
-  }
-
-  var oldOpenMeeting = window.openAddMeeting;
-  window.openAddMeeting = function(){
-    var r = oldOpenMeeting ? oldOpenMeeting.apply(this, arguments) : undefined;
-    setTimeout(bindMeetButton,50);
-    setTimeout(bindMeetButton,300);
-    return r;
-  };
-
-  var oldSaveMeeting = window.saveMeeting;
-  window.saveMeeting = async function(){
-    saveAppsUrl();
-    try{
-      var chk = el("mtg-auto-meet"), loc = el("mtg-loc");
-      if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value || "")){
-        await directGenerateMeetFinal();
-      }
-    }catch(e){ console.warn(e); }
-    return oldSaveMeeting ? oldSaveMeeting.apply(this, arguments) : undefined;
-  };
-
-  var oldInitApp = window.initApp;
-  if(typeof oldInitApp === "function"){
-    window.initApp = function(){
-      var r = oldInitApp.apply(this, arguments);
-      setTimeout(function(){ window.upgroLoadSupabaseTasksNow(true); },700);
-      setTimeout(autoAcceptDueTasks,2000);
-      return r;
-    };
-  }
-
-  document.addEventListener("DOMContentLoaded", function(){
-    saveAppsUrl();
-    setTimeout(function(){ window.upgroLoadSupabaseTasksNow(true); },1000);
-    setTimeout(bindMeetButton,1200);
-    setInterval(function(){ autoAcceptDueTasks(); },60000);
-  });
-
-  saveAppsUrl();
-  setTimeout(function(){ window.upgroLoadSupabaseTasksNow(true); },1600);
-  setInterval(bindMeetButton,2000);
-})();
-</script>
 
 
 <script>
@@ -9987,498 +9148,210 @@ window.checkSupabaseConnectionNow = async function(){
 </script>
 
 
+
+
+
+
 <script>
 /* =========================================================
-   UPGRO ABSOLUTE FINAL TASK SYNC PATCH
-   Fixes:
-   1) Task mail goes but portal does not show task.
-      Reason: task is saved in Apps Script/Sheet but portal reload was overwriting with Supabase-only data.
-      Fix: Apps Script tasks + Supabase tasks are merged, then rendered.
-   2) After assign, Apps Script task rows are pushed into Supabase automatically.
-   3) Accept / Reject / Done update both Supabase and Apps Script.
-   4) Meeting Generate Now uses working Apps Script URL and shows exact backend response.
+   UPGRO SPEED FIX — LIGHTWEIGHT TASK + MEET HANDLER
+   What this does:
+   - Removes heavy repeated Apps Script + Supabase full sync loops.
+   - Uses the original fast Apps Script task loading that already matches email/task creation.
+   - After assigning a task, it appears instantly from local state and refreshes once in background.
+   - Google Meet button uses the working Apps Script URL directly.
    ========================================================= */
 (function(){
-  if(window.__UPGRO_ABSOLUTE_FINAL_TASK_SYNC__) return;
-  window.__UPGRO_ABSOLUTE_FINAL_TASK_SYNC__ = true;
+  if(window.__UPGRO_SPEED_FIX_LIGHT__) return;
+  window.__UPGRO_SPEED_FIX_LIGHT__ = true;
 
   const APPS_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
-  const SUPA_URL = "https://lseqfkpwdzqzamypsewc.supabase.co";
-  const SUPA_KEY = "sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ";
+  let loadBusy = false;
+  let lastLoadAt = 0;
 
-  function $(id){ return document.getElementById(id); }
+  function $id(id){ return document.getElementById(id); }
   function S(v){ return String(v == null ? "" : v).trim(); }
-  function E(v){ return S(v).toLowerCase(); }
-  function notify(m){ try{ if(typeof toast === "function") toast(m); else console.log(m); }catch(e){ console.log(m); } }
-  function currentEmail(){ try{ return E(cu && cu.email); }catch(e){ return ""; } }
-  function currentName(){ try{ return S(cu && cu.name) || "UpGro Media"; }catch(e){ return "UpGro Media"; } }
-  function saveURL(){
+  function toastLite(msg){ try{ if(typeof toast === "function") toast(msg); else console.log(msg); }catch(e){ console.log(msg); } }
+
+  function saveAppsUrl(){
     try{
       SURL = APPS_URL;
-      ["ugv4_url","upgro_url","upgro_script_url","apps_script_url","upgro_apps_script_url","mission_control_script_url"].forEach(k=>localStorage.setItem(k, APPS_URL));
+      ["ugv4_url","upgro_url","upgro_script_url","apps_script_url","upgro_apps_script_url","mission_control_script_url"].forEach(function(k){
+        localStorage.setItem(k, APPS_URL);
+      });
     }catch(e){}
     window.UPGRO_APPS_SCRIPT_URL = APPS_URL;
     return APPS_URL;
   }
-  saveURL();
 
-  async function ensureSupabase(){
-    if(window.supabase && window.supabase.createClient) return;
-    await new Promise((resolve,reject)=>{
-      const ex = document.querySelector("script[data-upgro-supabase]");
-      if(ex){ setTimeout(resolve, 500); return; }
-      const s=document.createElement("script");
-      s.src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
-      s.async=true;
-      s.setAttribute("data-upgro-supabase","1");
-      s.onload=resolve;
-      s.onerror=()=>reject(new Error("Supabase library failed"));
-      document.head.appendChild(s);
-    });
-  }
-  async function sb(){
-    await ensureSupabase();
-    if(!window.__upgroAbsoluteSB) window.__upgroAbsoluteSB = window.supabase.createClient(SUPA_URL, SUPA_KEY, {auth:{persistSession:true,autoRefreshToken:true}});
-    return window.__upgroAbsoluteSB;
-  }
+  saveAppsUrl();
 
-  function first(o, keys){
-    for(const k of keys){
-      if(o && o[k] !== undefined && o[k] !== null && String(o[k]).trim() !== "") return o[k];
+  // Keep original loader, but prevent repeated overlapping refreshes.
+  const originalLoadData = window.loadData;
+  window.loadData = async function(force){
+    saveAppsUrl();
+    const now = Date.now();
+
+    if(loadBusy){
+      const sync = $id("tb-sync");
+      if(sync) sync.textContent = "Already syncing...";
+      return window.allTasks || [];
     }
-    return "";
-  }
-  function nameByEmail(email){
-    email=E(email);
-    try{ if(typeof uname === "function") return uname(email); }catch(e){}
-    try{
-      const e = (Array.isArray(empReg)?empReg:[]).find(x=>E(x.email)===email);
-      if(e) return e.name || email.split("@")[0];
-    }catch(e){}
-    return email ? email.split("@")[0] : "";
-  }
-  function desigByEmail(email){
-    email=E(email);
-    try{ if(typeof udesig === "function") return udesig(email); }catch(e){}
-    try{
-      const e = (Array.isArray(empReg)?empReg:[]).find(x=>E(x.email)===email);
-      if(e) return e.desig || e.designation || e.role || "";
-    }catch(e){}
-    return "";
-  }
-  function displayBy(v){
-    try{ if(typeof displayAssignedBy === "function") return displayAssignedBy(v); }catch(e){}
-    return S(v);
-  }
-  function parseStatus(v){
-    let s=S(v || "Assigned").toLowerCase();
-    if(s.includes("complete") || s==="done") return "completed";
-    if(s.includes("reject")) return "rejected";
-    if(s.includes("progress") || s.includes("accept") || s.includes("start")) return "in progress";
-    if(s.includes("overdue")) return "overdue";
-    return "assigned";
-  }
-  function dbStatus(v){
-    const s=parseStatus(v);
-    if(s==="completed") return "Completed";
-    if(s==="rejected") return "Rejected";
-    if(s==="in progress") return "In Progress";
-    if(s==="overdue") return "Overdue";
-    return "Assigned";
-  }
-  function dateOnly(v){
-    v=S(v);
-    if(!v) return null;
-    if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
-    let m=v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-    if(m) return m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0");
-    const d=new Date(v);
-    if(!isNaN(d)) return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
-    return null;
-  }
 
-  function getIdFromRow(r){
-    return S(first(r, ["ID","id","TaskID","taskId","taskCode","task_code","source_id"])) || ("T"+Date.now()+Math.random().toString(36).slice(2,5));
-  }
-  function taskNameFromRow(r, email){
-    try{ if(typeof pickTaskName === "function") return pickTaskName(r,email); }catch(e){}
-    return S(first(r, ["Work Name / Task Name","WorkName","TaskName","Task","task","title","Title","workName","Task Name"])) || "Task";
-  }
-
-  function mapAppsTask(r){
-    const email=E(first(r, ["Assigned To (Email)","AssignedTo_Email","AssignedToEmail","EmployeeEmail","empEmail","email","Email","assignedToEmail"]));
-    const assignedName=S(first(r, ["Assigned To (Name)","AssignedTo_Name","AssignedToName","EmployeeName","empName","assignedTo","Name"])) || nameByEmail(email);
-    const by=S(first(r, ["Assigned By","AssignedBy","AssignedBy_Name","AssignedByName","by","createdBy"])) || currentName();
-    const id=getIdFromRow(r);
-    const total=Number(first(r, ["Total Units / Count","TotalUnits","Total Units","Count","totalUnits"]) || 1) || 1;
-    const done=Number(first(r, ["Done Units","DoneUnits","doneUnits","DoneQty"]) || 0) || 0;
-    const pendingRaw=first(r, ["Pending Units","PendingUnits","pendingUnits","PendingQty"]);
-    const pending=pendingRaw === "" ? Math.max(0,total-done) : (Number(pendingRaw)||0);
-    const t={
-      _source:"appscript",
-      id:id, taskId:id, taskCode:id, sourceId:id,
-      task:taskNameFromRow(r,email),
-      title:taskNameFromRow(r,email),
-      email:email,
-      assignedToEmail:email,
-      empEmail:email,
-      empName:assignedName,
-      assignedTo:assignedName,
-      assignedToLabel:assignedName,
-      by:by,
-      assignedBy:by,
-      assignedByLabel:displayBy(by),
-      assignedByEmail:E(first(r, ["AssignedByEmail","assignedByEmail"])) || "",
-      desig:S(first(r, ["Designation","desig","Role","role"])) || desigByEmail(email),
-      adate:S(first(r, ["Assign Date","AssignDate","adate"])),
-      ddate:S(first(r, ["Due Date","DueDate","ddate","dueDate"])),
-      priority:S(first(r, ["Priority","priority"])) || "Medium",
-      status:parseStatus(first(r, ["Status","status"])),
-      ts:S(first(r, ["Timestamp","ts","CreatedAt","created_at"])) || new Date().toISOString(),
-      acceptedAt:S(first(r, ["Accepted At","AcceptedAt","acceptedAt"])),
-      completedAt:S(first(r, ["Completed At","CompletedAt","completedAt"])),
-      rejectReason:S(first(r, ["Reject Reason","RejectReason","rejectReason"])),
-      notes:S(first(r, ["Notes","notes","Description"])),
-      references:S(first(r, ["References","references"])),
-      adCopy:S(first(r, ["Ad Script / Ad Copy","AdCopy","adCopy","AdScript"])),
-      driveLink:S(first(r, ["Drive Link","DriveLink","driveLink","work_link"])),
-      totalUnits:total,
-      doneUnits:done,
-      pendingUnits:pending,
-      changeCount:Number(first(r, ["Change Count","ChangeCount","changeCount"]) || 0)||0,
-      rawApps:r
-    };
-    try{ if(typeof ensureTaskMeta === "function") return ensureTaskMeta(t); }catch(e){}
-    return t;
-  }
-
-  function extractDesc(desc,label){
-    desc=S(desc);
-    const re=new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s*:\\s*([^\\n]+)","i");
-    const m=desc.match(re);
-    return m ? S(m[1]) : "";
-  }
-  function mapSupaTask(r){
-    const raw=r.raw_data || {};
-    const id=S(r.source_id || raw.taskCode || raw.taskId || raw.TaskID || extractDesc(r.description,"Source ID") || r.id);
-    const email=E(r.assigned_to_email || raw.email || raw.assignedToEmail || raw.empEmail || "");
-    const assignedName=S(r.assigned_to_name || raw.empName || raw.assignedTo || nameByEmail(email));
-    const by=S(r.assigned_by_name || raw.by || raw.assignedBy || nameByEmail(r.assigned_by_email));
-    const total=Number(raw.totalUnits || extractDesc(r.description,"Total Units / Count") || 1)||1;
-    const done=Number(raw.doneUnits || extractDesc(r.description,"Done Units") || 0)||0;
-    const pending=Number(raw.pendingUnits || extractDesc(r.description,"Pending Units") || Math.max(0,total-done))||0;
-    const t={
-      _source:"supabase",
-      sqlId:r.id,
-      id:id, taskId:id, taskCode:id, sourceId:id,
-      task:S(r.title || raw.task || raw.Task || raw.TaskName || "Task"),
-      title:S(r.title || raw.task || raw.Task || raw.TaskName || "Task"),
-      email:email, assignedToEmail:email, empEmail:email,
-      empName:assignedName, assignedTo:assignedName, assignedToLabel:assignedName,
-      by:by, assignedBy:by, assignedByLabel:displayBy(by), assignedByEmail:E(r.assigned_by_email || raw.assignedByEmail || ""),
-      desig:desigByEmail(email),
-      adate:S(r.start_date || raw.adate || raw.AssignDate || ""),
-      ddate:S(r.due_date || raw.ddate || raw.DueDate || ""),
-      priority:S(r.priority || raw.priority || "Medium"),
-      status:parseStatus(r.status || raw.status || raw.Status),
-      ts:S(r.created_at || raw.Timestamp || ""),
-      acceptedAt:S(raw.acceptedAt || raw.AcceptedAt || ""),
-      completedAt:S(r.completed_at || raw.completedAt || raw.CompletedAt || ""),
-      rejectReason:S(raw.rejectReason || raw.RejectReason || ""),
-      notes:S(r.remarks || raw.notes || raw.Notes || ""),
-      references:S(raw.references || raw.References || extractDesc(r.description,"References")),
-      adCopy:S(raw.adCopy || raw.AdCopy || ""),
-      driveLink:S(r.work_link || raw.driveLink || raw.DriveLink || extractDesc(r.description,"Drive Link")),
-      totalUnits:total, doneUnits:done, pendingUnits:pending,
-      changeCount:Number(raw.changeCount || raw.ChangeCount || 0)||0,
-      rawSql:r
-    };
-    try{ if(typeof ensureTaskMeta === "function") return ensureTaskMeta(t); }catch(e){}
-    return t;
-  }
-
-  function taskToSupabaseRow(t){
-    const id=S(t.id || t.taskId || t.taskCode);
-    const email=E(t.email || t.assignedToEmail || t.empEmail);
-    const byName=S(t.assignedByLabel || t.by || t.assignedBy || currentName());
-    const byEmail=E(t.assignedByEmail || currentEmail());
-    const total=Number(t.totalUnits || 1)||1;
-    const done=Number(t.doneUnits || 0)||0;
-    const pending=Number(t.pendingUnits);
-    const p=Number.isFinite(pending) ? pending : Math.max(0,total-done);
-    const status=dbStatus(t.status);
-    const raw=Object.assign({}, t.rawApps || {}, {
-      taskCode:id, taskId:id, TaskID:id,
-      task:S(t.task || t.title), Task:S(t.task || t.title), TaskName:S(t.task || t.title),
-      email:email, assignedToEmail:email, empEmail:email,
-      empName:S(t.empName || t.assignedTo || nameByEmail(email)),
-      by:byName, assignedBy:byName, assignedByEmail:byEmail,
-      priority:S(t.priority || "Medium"), status:status, Status:status,
-      adate:S(t.adate || ""), ddate:S(t.ddate || ""),
-      notes:S(t.notes || ""), references:S(t.references || ""), adCopy:S(t.adCopy || ""),
-      driveLink:S(t.driveLink || ""), totalUnits:total, doneUnits:done, pendingUnits:p,
-      acceptedAt:S(t.acceptedAt || ""), completedAt:S(t.completedAt || ""),
-      rejectReason:S(t.rejectReason || ""), changeCount:Number(t.changeCount || 0)||0,
-      Timestamp:S(t.ts || new Date().toISOString())
-    });
-    return {
-      source_id:id,
-      title:S(t.task || t.title || "Task"),
-      description:[
-        "Source ID: "+id,
-        "Total Units / Count: "+total,
-        "Done Units: "+done,
-        "Pending Units: "+p,
-        t.references ? "References: "+S(t.references) : "",
-        t.driveLink ? "Drive Link: "+S(t.driveLink) : "",
-        t.notes ? "Notes: "+S(t.notes) : ""
-      ].filter(Boolean).join("\n"),
-      assigned_by_email:byEmail || null,
-      assigned_to_email:email || null,
-      assigned_by_name:byName || null,
-      assigned_to_name:S(t.empName || t.assignedTo || nameByEmail(email)) || null,
-      priority:S(t.priority || "Medium"),
-      status:status,
-      due_date:dateOnly(t.ddate),
-      start_date:dateOnly(t.adate),
-      completed_at:status==="Completed" ? (t.completedAt ? new Date(t.completedAt).toISOString() : new Date().toISOString()) : null,
-      work_link:S(t.driveLink || ""),
-      remarks:S(t.notes || ""),
-      raw_data:raw
-    };
-  }
-
-  async function fetchAppsTasks(){
-    saveURL();
-    const res=await fetch(APPS_URL+"?action=getTasks&ts="+Date.now(), {cache:"no-store"});
-    const j=await res.json();
-    const rows=Array.isArray(j.tasks)?j.tasks:Array.isArray(j.data)?j.data:Array.isArray(j.rows)?j.rows:[];
-    return rows.map(mapAppsTask).filter(t=>S(t.id));
-  }
-  async function fetchSupaTasks(){
-    const client=await sb();
-    const res=await client.from("tasks").select("*").order("created_at",{ascending:false}).limit(5000);
-    if(res.error) throw res.error;
-    return (res.data||[]).map(mapSupaTask).filter(t=>S(t.id));
-  }
-  function mergeTasks(apps,supa){
-    const map=new Map();
-    (supa||[]).forEach(t=>map.set(S(t.id),t));
-    (apps||[]).forEach(t=>{
-      const key=S(t.id);
-      if(!key) return;
-      const old=map.get(key) || {};
-      // Apps Script is source of assignment/email, Supabase can keep newer status.
-      const merged=Object.assign({}, old, t);
-      const oldStatus=parseStatus(old.status);
-      const appStatus=parseStatus(t.status);
-      if(["completed","rejected","in progress"].includes(oldStatus) && appStatus==="assigned") {
-        merged.status=old.status;
-        merged.acceptedAt=old.acceptedAt || merged.acceptedAt;
-        merged.completedAt=old.completedAt || merged.completedAt;
-        merged.rejectReason=old.rejectReason || merged.rejectReason;
-      }
-      map.set(key, merged);
-    });
-    return Array.from(map.values()).sort((a,b)=>{
-      const da=new Date(a.ts || a.rawSql?.created_at || 0).getTime() || 0;
-      const db=new Date(b.ts || b.rawSql?.created_at || 0).getTime() || 0;
-      return db-da;
-    });
-  }
-
-  async function pushAppsTasksToSupabase(tasks){
-    const client=await sb();
-    for(const t of tasks){
-      try{
-        const row=taskToSupabaseRow(t);
-        if(!row.source_id) continue;
-        const found=await client.from("tasks").select("id,raw_data").eq("source_id",row.source_id).limit(1);
-        if(found.error) throw found.error;
-        if(found.data && found.data.length){
-          row.raw_data=Object.assign({}, found.data[0].raw_data || {}, row.raw_data || {});
-          const upd=await client.from("tasks").update(row).eq("id",found.data[0].id);
-          if(upd.error) throw upd.error;
-        }else{
-          const ins=await client.from("tasks").insert([row]);
-          if(ins.error) throw ins.error;
-        }
-      }catch(e){ console.error("Push Apps task to Supabase failed", t && t.id, e); }
+    if(!force && now - lastLoadAt < 1400){
+      return window.allTasks || [];
     }
-  }
 
-  window.upgroForceTaskSyncNow = async function(quiet){
+    loadBusy = true;
+    lastLoadAt = now;
+
     try{
-      const sync=$("tb-sync");
-      if(sync) sync.textContent="Syncing tasks...";
-      const apps=await fetchAppsTasks();
-      let supa=[];
-      try{ supa=await fetchSupaTasks(); }catch(e){ console.warn("Supabase fetch failed",e); }
-      await pushAppsTasksToSupabase(apps);
-      try{ supa=await fetchSupaTasks(); }catch(e){}
-      const merged=mergeTasks(apps,supa);
-      try{ allTasks=merged; }catch(e){}
-      window.allTasks=merged;
-      try{ if(typeof populateTaskFilterOptions==="function") populateTaskFilterOptions(); }catch(e){}
-      try{ if(typeof populateSubSel==="function") populateSubSel(); }catch(e){}
-      try{ if(typeof buildUI==="function") buildUI(); }catch(e){}
-      try{ if(typeof renderMyTasks==="function") renderMyTasks(); }catch(e){}
-      try{ if(typeof renderAllTasks==="function") renderAllTasks(); }catch(e){}
-      if(sync) sync.textContent="🟢 Synced "+merged.length+" tasks";
-      if(!quiet) notify("✅ Tasks synced: "+merged.length);
-      return merged;
+      const sync = $id("tb-sync");
+      if(sync) sync.textContent = "Refreshing...";
+      const r = originalLoadData ? await originalLoadData.apply(this, arguments) : undefined;
+      if(sync) sync.textContent = "🟢 Fast sync";
+      return r;
     }catch(err){
-      console.error("Task sync failed",err);
-      if(!quiet) notify("❌ Task sync failed: "+(err.message||err));
+      console.error("Fast loadData failed", err);
+      const sync = $id("tb-sync");
+      if(sync) sync.textContent = "Sync failed";
+      toastLite("❌ Refresh failed: " + (err.message || err));
       return [];
+    }finally{
+      loadBusy = false;
     }
   };
 
-  // Replace loadData with merge loader. This is the key fix.
-  window.loadData = async function(){ return window.upgroForceTaskSyncNow(false); };
-
-  // Override saveTask: run old mail/sheet save, then force sync sheet -> Supabase -> portal.
-  const previousSaveTask = window.saveTask;
+  // Save task: use existing working email/sheet logic; then only one light refresh.
+  const originalSaveTask = window.saveTask;
   window.saveTask = async function(){
-    saveURL();
-    let res;
+    saveAppsUrl();
+    const btn = document.querySelector("#m-add .btn.bp, #m-add button[onclick='saveTask()']");
+    try{ if(btn){ btn.disabled = true; btn.dataset.oldText = btn.textContent; btn.textContent = "Saving..."; } }catch(e){}
+
     try{
-      res = previousSaveTask ? await previousSaveTask.apply(this, arguments) : undefined;
-    }catch(e){
-      console.error("Original saveTask failed", e);
-      notify("❌ Task assign failed: "+(e.message||e));
-      throw e;
+      const r = originalSaveTask ? await originalSaveTask.apply(this, arguments) : undefined;
+
+      // Existing saveTask already pushes the new task locally.
+      try{ if(typeof buildUI === "function") buildUI(); }catch(e){}
+      try{ if(typeof renderMyTasks === "function") renderMyTasks(); }catch(e){}
+      try{ if(typeof renderAllTasks === "function") renderAllTasks(); }catch(e){}
+
+      // One background refresh only. No heavy full-loop syncing.
+      setTimeout(function(){ try{ window.loadData(true); }catch(e){} }, 900);
+
+      return r;
+    }finally{
+      try{ if(btn){ btn.disabled = false; btn.textContent = btn.dataset.oldText || "Save"; } }catch(e){}
     }
-    notify("⏳ Task email sent. Syncing portal...");
-    setTimeout(()=>window.upgroForceTaskSyncNow(true),500);
-    setTimeout(()=>window.upgroForceTaskSyncNow(false),1600);
-    setTimeout(()=>window.upgroForceTaskSyncNow(true),4000);
-    return res;
   };
 
-  async function updateBothStatus(id, status, extra){
-    id=S(id);
-    extra=extra||{};
-    const now=new Date().toLocaleString("en-IN");
-    const appsPayload=Object.assign({id:id, taskId:id, taskCode:id}, extra);
-    if(status==="In Progress") appsPayload.action="acceptTask";
-    else if(status==="Rejected") appsPayload.action="rejectTask";
-    else if(status==="Completed") appsPayload.action="submitWork";
-    try{ await fetch(APPS_URL,{method:"POST",body:JSON.stringify(appsPayload)}); }catch(e){ console.warn("Apps status sync failed",e); }
+  async function generateMeetLinkFast(){
+    saveAppsUrl();
 
+    const st = $id("ug-meet-auto-status");
+    const loc = $id("mtg-loc");
+    const title = S(($id("mtg-title") || {value:""}).value);
+    const date = S(($id("mtg-date") || {value:""}).value);
+    const time = S(($id("mtg-time") || {value:""}).value);
+
+    if(!title){ toastLite("⚠ Meeting title required"); return ""; }
+    if(!date || !time){ toastLite("⚠ Date and time required"); return ""; }
+
+    let attendees = [];
     try{
-      const client=await sb();
-      const found=await client.from("tasks").select("id,raw_data").eq("source_id",id).limit(1);
-      if(!found.error && found.data && found.data.length){
-        const raw=Object.assign({}, found.data[0].raw_data||{}, extra.raw_data||{}, {status:status,Status:status});
-        const row={status:status, raw_data:raw};
-        if(status==="Completed") row.completed_at=new Date().toISOString();
-        if(extra.remarks) row.remarks=extra.remarks;
-        if(extra.work_link) row.work_link=extra.work_link;
-        await client.from("tasks").update(row).eq("id",found.data[0].id);
-      }
-    }catch(e){ console.warn("Supabase status sync failed",e); }
-    await window.upgroForceTaskSyncNow(true);
-  }
-
-  const oldAccept=window.qAccept;
-  window.qAccept=async function(id, task, em, adate, ddate, isAuto){
-    const now=new Date().toLocaleString("en-IN");
-    await updateBothStatus(id,"In Progress",{raw_data:{acceptedAt:now,AcceptedAt:now,tatStartAt:now,TatStartAt:now,autoAccepted:!!isAuto,AutoAccepted:!!isAuto}});
-    return oldAccept ? oldAccept.apply(this,arguments) : undefined;
-  };
-  const oldReject=window.qReject;
-  window.qReject=async function(id){
-    const reason=(prompt("Reject reason likho:","")||"").trim();
-    if(!reason){ notify("⚠ Reject reason required"); return; }
-    await updateBothStatus(id,"Rejected",{RejectReason:reason,rejectReason:reason,remarks:reason,raw_data:{rejectReason:reason,RejectReason:reason,rejectedAt:new Date().toLocaleString("en-IN")}});
-    notify("⛔ Task rejected");
-  };
-  const oldDone=window.qDone;
-  window.qDone=async function(id){
-    await updateBothStatus(id,"Completed",{status:"Completed",raw_data:{completedAt:new Date().toLocaleString("en-IN"),CompletedAt:new Date().toLocaleString("en-IN")}});
-    return oldDone ? oldDone.apply(this,arguments) : undefined;
-  };
-
-  // Meeting direct handler with working backend URL.
-  async function generateMeet(){
-    saveURL();
-    const st=$("ug-meet-auto-status"), loc=$("mtg-loc");
-    const title=S(($("mtg-title")||{value:""}).value);
-    const date=S(($("mtg-date")||{value:""}).value);
-    const time=S(($("mtg-time")||{value:""}).value);
-    if(!title){ notify("⚠ Meeting title required"); return ""; }
-    if(!date || !time){ notify("⚠ Date/time required"); return ""; }
-    let attendees=[];
-    try{
-      attendees=Array.from(selectedAttendees||[]).map(x=>{
-        const emp=(typeof empByEmail==="function"?empByEmail(x):null)||{};
-        return {email:x,name:emp.name||x,desig:emp.desig||emp.role||"Team"};
+      attendees = Array.from(selectedAttendees || []).map(function(email){
+        const emp = (typeof empByEmail === "function" ? empByEmail(email) : null) || {};
+        return { email: email, name: emp.name || email, desig: emp.desig || emp.role || "Team" };
       });
     }catch(e){}
-    const dur=S(($("mtg-dur")||{value:"30 minutes"}).value);
-    let mins=parseInt((dur.match(/\d+/)||["30"])[0],10)||30;
-    if(/hour|hr/i.test(dur)) mins*=60;
-    const payload={action:"createCalendarMeeting",title:title,datetime:date+"T"+time,durationMinutes:mins,attendeeList:attendees,agenda:S(($("mtg-agenda")||{value:""}).value),notes:S(($("mtg-notes")||{value:""}).value),organizer:currentName()};
+
+    const dur = S(($id("mtg-dur") || {value:"30 minutes"}).value);
+    let mins = parseInt((dur.match(/\d+/) || ["30"])[0], 10) || 30;
+    if(/hour|hr/i.test(dur)) mins *= 60;
+
+    const payload = {
+      action: "createCalendarMeeting",
+      title: title,
+      datetime: date + "T" + time,
+      durationMinutes: mins,
+      attendeeList: attendees,
+      agenda: S(($id("mtg-agenda") || {value:""}).value),
+      notes: S(($id("mtg-notes") || {value:""}).value),
+      organizer: (window.cu && cu.name) || "UpGro Media"
+    };
+
     try{
-      if(st) st.textContent="Generating Google Meet link...";
-      const res=await fetch(APPS_URL,{method:"POST",body:JSON.stringify(payload)});
-      const raw=await res.text();
-      let d={}; try{ d=JSON.parse(raw); }catch(e){}
-      const link=d.meetLink||d.hangoutLink||d.conferenceLink||d.link||d.url||"";
+      if(st) st.textContent = "Generating Google Meet link...";
+      const res = await fetch(APPS_URL, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      const raw = await res.text();
+
+      let data = {};
+      try{ data = JSON.parse(raw); }catch(e){}
+
+      const link = data.meetLink || data.hangoutLink || data.conferenceLink || data.link || data.url || "";
       if(link && /meet\.google\.com/i.test(link)){
-        if(loc) loc.value=link;
-        if(st) st.textContent="✅ Google Meet link generated and added.";
-        notify("✅ Google Meet link generated");
+        if(loc) loc.value = link;
+        if(st) st.textContent = "✅ Google Meet link generated.";
+        toastLite("✅ Google Meet link generated");
         return link;
       }
-      const detail=d.error||d.message||raw.slice(0,200)||"No meetLink returned";
-      if(st) st.textContent="❌ Meet backend error: "+detail;
-      console.error("Meet backend response",d,raw);
+
+      const msg = data.error || data.message || raw.slice(0, 180) || "No meetLink returned";
+      if(st) st.textContent = "❌ Meet backend error: " + msg;
+      console.error("Meet backend response:", data, raw);
       return "";
-    }catch(e){
-      console.error(e);
-      if(st) st.textContent="❌ Meet fetch failed: "+(e.message||e);
+    }catch(err){
+      console.error("Meet generation failed", err);
+      if(st) st.textContent = "❌ Meet failed: " + (err.message || err);
+      toastLite("❌ Meet generation failed");
       return "";
     }
   }
-  window.ugGenerateMeetLinkFromModal=generateMeet;
-  function bindMeet(){
-    saveURL();
-    const b=$("ug-meet-generate-now");
-    if(b) b.onclick=function(e){ if(e) e.preventDefault(); return generateMeet(); };
+
+  window.ugGenerateMeetLinkFromModal = generateMeetLinkFast;
+  window.upgroResolveAppsScriptUrl = saveAppsUrl;
+  window.forceSaveAppsScriptUrlNow = saveAppsUrl;
+
+  function bindMeetButton(){
+    saveAppsUrl();
+    const b = $id("ug-meet-generate-now");
+    if(b){
+      b.onclick = function(e){
+        if(e) e.preventDefault();
+        return generateMeetLinkFast();
+      };
+    }
   }
-  const oldOpen=window.openAddMeeting;
-  window.openAddMeeting=function(){
-    const r=oldOpen?oldOpen.apply(this,arguments):undefined;
-    setTimeout(bindMeet,50); setTimeout(bindMeet,400);
+
+  const originalOpenAddMeeting = window.openAddMeeting;
+  window.openAddMeeting = function(){
+    const r = originalOpenAddMeeting ? originalOpenAddMeeting.apply(this, arguments) : undefined;
+    setTimeout(bindMeetButton, 50);
+    setTimeout(bindMeetButton, 300);
     return r;
   };
-  const oldSaveMeeting=window.saveMeeting;
-  window.saveMeeting=async function(){
-    saveURL();
-    const chk=$("mtg-auto-meet"), loc=$("mtg-loc");
-    if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value||"")) await generateMeet();
-    return oldSaveMeeting?oldSaveMeeting.apply(this,arguments):undefined;
+
+  const originalSaveMeeting = window.saveMeeting;
+  window.saveMeeting = async function(){
+    saveAppsUrl();
+    const chk = $id("mtg-auto-meet");
+    const loc = $id("mtg-loc");
+    if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value || "")){
+      await generateMeetLinkFast();
+    }
+    return originalSaveMeeting ? originalSaveMeeting.apply(this, arguments) : undefined;
   };
 
-  // Startup sync + auto sync.
-  const oldInitApp=window.initApp;
-  if(typeof oldInitApp==="function"){
-    window.initApp=function(){
-      const r=oldInitApp.apply(this,arguments);
-      setTimeout(()=>window.upgroForceTaskSyncNow(true),800);
-      setTimeout(bindMeet,1000);
-      return r;
-    };
-  }
-  document.addEventListener("DOMContentLoaded",()=>{
-    saveURL();
-    setTimeout(()=>window.upgroForceTaskSyncNow(true),1200);
-    setTimeout(bindMeet,1200);
-    setInterval(()=>window.upgroForceTaskSyncNow(true),60000);
+  document.addEventListener("DOMContentLoaded", function(){
+    saveAppsUrl();
+    setTimeout(bindMeetButton, 800);
   });
-  setTimeout(()=>window.upgroForceTaskSyncNow(true),2000);
+
+  // No repeated sync intervals here. Manual refresh remains available.
 })();
 </script>
 
