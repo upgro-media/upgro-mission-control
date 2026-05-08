@@ -994,7 +994,8 @@ const TODAY=new Date().toISOString().split('T')[0];
 const statusOverrides=new Map();
 const AUTO_ACCEPT_MINUTES=20;
 let autoAcceptBusy=false;
-let SURL=localStorage.getItem('ugv4_url')||localStorage.getItem('upgro_url')||'';
+let SURL = 'https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec';
+try{['ugv4_url','upgro_url','upgro_script_url','apps_script_url','upgro_apps_script_url','mission_control_script_url'].forEach(k=>localStorage.setItem(k,SURL));}catch(e){}
 
 // ── UTILS ─────────────────────────────────────────────────────
 const ini=n=>(n||'?').trim().split(/\s+/).map(w=>w[0]).join('').toUpperCase().slice(0,2);
@@ -6327,7 +6328,8 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(fillAssignDro
   async function generateMeetLinkFromModal(){
     var loc=$('mtg-loc'), st=$('ug-meet-auto-status');
     var title=N(($('mtg-title')||{value:''}).value), date=($('mtg-date')||{value:''}).value, time=($('mtg-time')||{value:''}).value;
-    if(!SURL){ toastSafe('⚠ Settings mein Apps Script URL save karo pehle'); return ''; }
+    SURL = SURL || 'https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec';
+    if(!SURL){ toastSafe('⚠ Apps Script URL missing'); return ''; }
     if(!title){ toastSafe('⚠ Meeting title required'); return ''; }
     if(!date||!time){ toastSafe('⚠ Date and time required'); return ''; }
     try{ if(st) st.textContent='Generating Google Meet link...'; }catch(e){}
@@ -8921,6 +8923,10 @@ window.checkSupabaseConnectionNow = async function(){
     if(!title){ say('⚠ Meeting title required'); return ''; }
     if(!date || !time){ say('⚠ Date and time required'); return ''; }
     if(!url){
+      try{ window.UPGRO_APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec'; SURL = 'https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec'; }catch(e){}
+      url = 'https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec';
+    }
+    if(!url){
       if(st) st.textContent = '❌ Apps Script URL not found. Existing saved URL was missing, so Google Meet cannot be created.';
       say('❌ Apps Script URL missing. Paste it once in Settings, then this button will auto-pick it every time.');
       return '';
@@ -9097,6 +9103,140 @@ window.checkSupabaseConnectionNow = async function(){
   });
 
   saveFixedUrl();
+})();
+</script>
+
+
+<script>
+/* UPGRO FINAL DIRECT MEET BUTTON OVERRIDE */
+(function(){
+  var FIXED_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
+
+  function byId(id){ return document.getElementById(id); }
+  function val(id){ var el = byId(id); return el ? String(el.value || "").trim() : ""; }
+  function msg(t){ try{ if(typeof toast === "function") toast(t); else console.log(t); }catch(e){ console.log(t); } }
+
+  function saveUrlEverywhere(){
+    try {
+      ["ugv4_url","upgro_url","upgro_script_url","apps_script_url","upgro_apps_script_url","mission_control_script_url"].forEach(function(k){
+        localStorage.setItem(k, FIXED_URL);
+      });
+      SURL = FIXED_URL;
+    } catch(e) {}
+    window.UPGRO_APPS_SCRIPT_URL = FIXED_URL;
+    return FIXED_URL;
+  }
+
+  async function directGenerateMeet(){
+    saveUrlEverywhere();
+    var st = byId("ug-meet-auto-status");
+    var loc = byId("mtg-loc");
+    var title = val("mtg-title");
+    var date = val("mtg-date");
+    var time = val("mtg-time");
+
+    if(!title){ msg("⚠ Meeting title required"); return ""; }
+    if(!date || !time){ msg("⚠ Date and time required"); return ""; }
+
+    var attendees = [];
+    try {
+      attendees = Array.from(selectedAttendees || []).map(function(email){
+        var e = (typeof empByEmail === "function" ? (empByEmail(email) || {}) : {});
+        return { email: email, name: e.name || email, desig: e.desig || e.role || "Team" };
+      });
+    } catch(e) {}
+
+    var dur = val("mtg-dur") || "30 minutes";
+    var mins = parseInt((String(dur).match(/\d+/) || ["30"])[0], 10) || 30;
+    if(/hour|hr/i.test(dur)) mins = mins * 60;
+
+    var payload = {
+      action: "createCalendarMeeting",
+      title: title,
+      datetime: date + "T" + time,
+      durationMinutes: mins,
+      attendeeList: attendees,
+      agenda: val("mtg-agenda"),
+      notes: val("mtg-notes"),
+      organizer: (typeof currentUser === "function" && currentUser() && currentUser().name) || "UpGro Media"
+    };
+
+    try {
+      if(st) st.textContent = "Generating Google Meet link...";
+      var res = await fetch(FIXED_URL, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      var raw = await res.text();
+      var data = {};
+      try { data = JSON.parse(raw); } catch(e) {
+        console.error("Apps Script raw response:", raw);
+      }
+      var link = data.meetLink || data.hangoutLink || data.conferenceLink || data.link || data.url || "";
+      if(link && /meet\.google\.com/i.test(link)){
+        if(loc) loc.value = link;
+        if(st) st.textContent = "✅ Google Meet link generated and added.";
+        msg("✅ Google Meet link generated");
+        return link;
+      }
+      console.error("Apps Script returned without meet link:", data, raw);
+      if(st) st.textContent = "❌ Meet link not returned by Apps Script. Check deployment/new version and Calendar permission.";
+      msg("❌ Apps Script returned no meet link");
+      return "";
+    } catch(err) {
+      console.error("Meet fetch failed:", err);
+      if(st) st.textContent = "❌ Meet generation failed: " + (err.message || err);
+      msg("❌ Meet generation failed");
+      return "";
+    }
+  }
+
+  window.upgroResolveAppsScriptUrl = saveUrlEverywhere;
+  window.forceSaveAppsScriptUrlNow = saveUrlEverywhere;
+  window.ugGenerateMeetLinkFromModal = directGenerateMeet;
+
+  function bind(){
+    saveUrlEverywhere();
+    var b = byId("ug-meet-generate-now");
+    if(b){
+      b.onclick = function(e){ if(e) e.preventDefault(); return directGenerateMeet(); };
+    }
+    var st = byId("ug-meet-auto-status");
+    if(st && /URL not found|URL missing|Existing saved URL/i.test(st.textContent || "")){
+      st.textContent = "Google Meet link will be generated automatically while saving, then sent in invite emails.";
+    }
+  }
+
+  var oldOpen = window.openAddMeeting;
+  window.openAddMeeting = function(){
+    var r = oldOpen ? oldOpen.apply(this, arguments) : undefined;
+    setTimeout(bind, 50);
+    setTimeout(bind, 300);
+    setTimeout(bind, 900);
+    return r;
+  };
+
+  var oldSave = window.saveMeeting;
+  window.saveMeeting = async function(){
+    saveUrlEverywhere();
+    try {
+      var chk = byId("mtg-auto-meet");
+      var loc = byId("mtg-loc");
+      if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value || "")){
+        await directGenerateMeet();
+      }
+    } catch(e) { console.warn(e); }
+    return oldSave ? oldSave.apply(this, arguments) : undefined;
+  };
+
+  document.addEventListener("DOMContentLoaded", function(){
+    bind();
+    setTimeout(bind, 800);
+    setTimeout(bind, 2000);
+  });
+
+  saveUrlEverywhere();
+  setInterval(bind, 2000);
 })();
 </script>
 
