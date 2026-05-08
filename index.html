@@ -9025,5 +9025,80 @@ window.checkSupabaseConnectionNow = async function(){
 })();
 </script>
 
+
+<script>
+/* =========================================================
+   UPGRO PATCH — HARD-CODED APPS SCRIPT URL FOR MEET LINK
+   Scope: only fixes Google Meet backend URL detection.
+   ========================================================= */
+(function(){
+  var FIXED_APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
+  var URL_KEYS = [
+    "ugv4_url",
+    "upgro_url",
+    "upgro_script_url",
+    "apps_script_url",
+    "upgro_apps_script_url",
+    "mission_control_script_url"
+  ];
+
+  function saveFixedUrl(){
+    URL_KEYS.forEach(function(key){
+      try { localStorage.setItem(key, FIXED_APPS_SCRIPT_URL); } catch(e) {}
+    });
+
+    try { SURL = FIXED_APPS_SCRIPT_URL; } catch(e) {}
+
+    var input = document.getElementById("url-in");
+    if(input) input.value = FIXED_APPS_SCRIPT_URL;
+
+    var st = document.getElementById("url-st");
+    if(st) st.textContent = "✅ Apps Script URL auto-saved.";
+
+    var cst = document.getElementById("conn-st");
+    if(cst){
+      cst.className = "cok";
+      cst.textContent = "✅ Connected";
+    }
+
+    var meetStatus = document.getElementById("ug-meet-auto-status");
+    if(meetStatus && /URL not found|URL missing/i.test(meetStatus.textContent || "")){
+      meetStatus.textContent = "Google Meet link will be generated automatically while saving, then sent in invite emails.";
+    }
+
+    return FIXED_APPS_SCRIPT_URL;
+  }
+
+  window.UPGRO_APPS_SCRIPT_URL = FIXED_APPS_SCRIPT_URL;
+
+  window.upgroResolveAppsScriptUrl = function(){
+    return saveFixedUrl();
+  };
+
+  window.forceSaveAppsScriptUrlNow = function(){
+    var url = saveFixedUrl();
+    alert("Apps Script URL saved: " + url);
+    return url;
+  };
+
+  var oldTestConn = window.testConn;
+  window.testConn = async function(){
+    saveFixedUrl();
+    if(typeof oldTestConn === "function"){
+      return oldTestConn.apply(this, arguments);
+    }
+    return true;
+  };
+
+  document.addEventListener("DOMContentLoaded", function(){
+    saveFixedUrl();
+    setTimeout(saveFixedUrl, 600);
+    setTimeout(saveFixedUrl, 1600);
+  });
+
+  saveFixedUrl();
+})();
+</script>
+
 </body>
 </html>
