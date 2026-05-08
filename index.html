@@ -9240,5 +9240,647 @@ window.checkSupabaseConnectionNow = async function(){
 })();
 </script>
 
+
+<script>
+/* =========================================================
+   UPGRO FINAL SUPABASE TASK WRITE + STATUS + AUTO ACCEPT PATCH
+   Scope:
+   - New assigned tasks are saved in Supabase tasks table.
+   - Accept / Reject / Done / Submit Work status syncs to Supabase.
+   - Auto accept after 20 minutes runs from Supabase data.
+   - Meeting Generate Now uses fixed Apps Script URL and shows exact backend error.
+   ========================================================= */
+(function(){
+  if(window.__UPGRO_TASK_SUPABASE_FINAL_PATCH__) return;
+  window.__UPGRO_TASK_SUPABASE_FINAL_PATCH__ = true;
+
+  var SUPA_URL = "https://lseqfkpwdzqzamypsewc.supabase.co";
+  var SUPA_KEY = "sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ";
+  var APPS_URL = "https://script.google.com/macros/s/AKfycbzReuXUcaWQ0uMv9_S8EntWQSU4TH1i3-dW04TqtrnM-8UP0F9q8jNesUCqN6gMLYbM/exec";
+
+  function el(id){ return document.getElementById(id); }
+  function T(v){ return String(v == null ? "" : v).trim(); }
+  function E(v){ return T(v).toLowerCase(); }
+  function toast2(msg){ try{ if(typeof toast === "function") toast(msg); else console.log(msg); }catch(e){ console.log(msg); } }
+  function getCuEmail(){ try{ return E((cu && cu.email) || ""); }catch(e){ return ""; } }
+  function getCuName(){ try{ return T((cu && cu.name) || "UpGro Media"); }catch(e){ return "UpGro Media"; } }
+  function safeJson(obj){ try{ return JSON.parse(JSON.stringify(obj || {})); }catch(e){ return {}; } }
+
+  function saveAppsUrl(){
+    try{
+      ["ugv4_url","upgro_url","upgro_script_url","apps_script_url","upgro_apps_script_url","mission_control_script_url"].forEach(function(k){
+        localStorage.setItem(k, APPS_URL);
+      });
+      SURL = APPS_URL;
+    }catch(e){}
+    window.UPGRO_APPS_SCRIPT_URL = APPS_URL;
+    return APPS_URL;
+  }
+
+  async function loadSupabaseLib(){
+    if(window.supabase && window.supabase.createClient) return;
+    await new Promise(function(resolve,reject){
+      var existing = document.querySelector("script[data-upgro-supabase]");
+      if(existing){
+        existing.addEventListener("load", resolve);
+        existing.addEventListener("error", reject);
+        setTimeout(resolve, 1000);
+        return;
+      }
+      var s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      s.async = true;
+      s.setAttribute("data-upgro-supabase","1");
+      s.onload = resolve;
+      s.onerror = function(){ reject(new Error("Supabase library load failed")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function taskSB(){
+    await loadSupabaseLib();
+    if(!window.__upgroTaskFinalSB){
+      window.__upgroTaskFinalSB = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+        auth: { persistSession:true, autoRefreshToken:true }
+      });
+    }
+    return window.__upgroTaskFinalSB;
+  }
+
+  function capStatus(s){
+    s = T(s || "Assigned").toLowerCase();
+    if(s === "completed" || s === "done") return "Completed";
+    if(s === "rejected" || s === "reject") return "Rejected";
+    if(s === "in progress" || s === "inprogress" || s === "started" || s === "working") return "In Progress";
+    return "Assigned";
+  }
+
+  function uiStatus(s){
+    s = capStatus(s).toLowerCase();
+    if(s === "in progress") return "in progress";
+    if(s === "completed") return "completed";
+    if(s === "rejected") return "rejected";
+    return "assigned";
+  }
+
+  function toISODate(v){
+    v = T(v);
+    if(!v) return null;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    var m = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+    if(m){
+      return m[3] + "-" + String(m[2]).padStart(2,"0") + "-" + String(m[1]).padStart(2,"0");
+    }
+    var d = new Date(v);
+    if(!isNaN(d)){
+      return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+    }
+    return null;
+  }
+
+  function extractFromDescription(desc, label){
+    desc = T(desc);
+    var re = new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*:\\s*([^\\n]+)", "i");
+    var m = desc.match(re);
+    return m ? T(m[1]) : "";
+  }
+
+  function sourceIdFromRow(row){
+    var raw = row.raw_data || {};
+    return T(row.source_id || raw.taskCode || raw.taskId || raw.TaskID || extractFromDescription(row.description, "Source ID") || row.id);
+  }
+
+  function nameByEmail(em){
+    em = E(em);
+    try{ if(typeof uname === "function") return uname(em); }catch(e){}
+    try{
+      var found = (Array.isArray(empReg) ? empReg : []).find(function(x){ return E(x.email) === em; });
+      if(found) return found.name || em.split("@")[0];
+    }catch(e){}
+    return em ? em.split("@")[0] : "";
+  }
+
+  function desigByEmail(em){
+    em = E(em);
+    try{ if(typeof udesig === "function") return udesig(em); }catch(e){}
+    try{
+      var found = (Array.isArray(empReg) ? empReg : []).find(function(x){ return E(x.email) === em; });
+      if(found) return found.desig || found.designation || found.role || "";
+    }catch(e){}
+    return "";
+  }
+
+  function displayName(name, em, desig){
+    try{ if(typeof normalizeDisplayName === "function") return normalizeDisplayName(name, em, desig); }catch(e){}
+    return T(name) || nameByEmail(em) || em;
+  }
+
+  function mapSqlTask(row){
+    var raw = row.raw_data || {};
+    var id = sourceIdFromRow(row);
+    var desc = T(row.description || "");
+    var assignedToEmail = E(row.assigned_to_email || raw.email || raw.assignedToEmail || raw.empEmail || raw.EmployeeEmail || raw["Assigned To Email"] || "");
+    var assignedByEmail = E(row.assigned_by_email || raw.assignedByEmail || raw.assignedBy || "");
+    var assignedToName = T(row.assigned_to_name || raw.empName || raw.assignedTo || raw.assignedToName || raw["Assigned To Name"] || nameByEmail(assignedToEmail));
+    var assignedByName = T(row.assigned_by_name || raw.assignedByLabel || raw.assignedBy || raw.by || nameByEmail(assignedByEmail));
+    var status = uiStatus(row.status || raw.status || raw.Status);
+    var acceptedAt = raw.acceptedAt || raw.AcceptedAt || raw.tatStartAt || raw.TatStartAt || "";
+    if(status === "in progress" && !acceptedAt) acceptedAt = row.updated_at || row.created_at || "";
+    var totalUnits = Number(raw.totalUnits || raw.Count || extractFromDescription(desc, "Total Units / Count") || 1) || 1;
+    var doneUnits = Number(raw.doneUnits || raw.DoneQty || extractFromDescription(desc, "Done Units") || 0) || 0;
+    var pendingUnits = Number(raw.pendingUnits || raw.PendingQty || Math.max(0, totalUnits - doneUnits)) || 0;
+
+    var t = {
+      _source:"supabase",
+      sqlId: row.id || "",
+      id: id,
+      taskId: id,
+      taskCode: id,
+      sourceId: id,
+      task: T(row.title || raw.task || raw.Task || raw.TaskName || "Task " + id),
+      title: T(row.title || raw.task || raw.Task || raw.TaskName || "Task " + id),
+      description: desc,
+      notes: T(row.remarks || raw.notes || raw.Notes || desc),
+      references: T(raw.references || raw.References || extractFromDescription(desc, "References")),
+      adCopy: T(raw.adCopy || raw.AdCopy || ""),
+      driveLink: T(row.work_link || raw.driveLink || raw.DriveLink || extractFromDescription(desc, "Drive Link")),
+      email: assignedToEmail,
+      assignedToEmail: assignedToEmail,
+      empEmail: assignedToEmail,
+      empName: assignedToName,
+      assignedTo: assignedToName,
+      assignedToLabel: displayName(assignedToName, assignedToEmail, desigByEmail(assignedToEmail)),
+      by: assignedByName,
+      assignedBy: assignedByName,
+      assignedByEmail: assignedByEmail,
+      assignedByLabel: assignedByName,
+      priority: T(row.priority || raw.priority || "Medium").toLowerCase(),
+      status: status,
+      adate: T(row.start_date || raw.adate || raw.AssignDate || ""),
+      ddate: T(row.due_date || raw.ddate || raw.DueDate || ""),
+      ts: T(row.created_at || raw.ts || raw.Timestamp || ""),
+      acceptedAt: T(acceptedAt),
+      completedAt: T(row.completed_at || raw.completedAt || raw.CompletedAt || ""),
+      rejectedAt: T(raw.rejectedAt || raw.RejectedAt || ""),
+      rejectReason: T(raw.rejectReason || raw.RejectReason || ""),
+      autoAccepted: !!(raw.autoAccepted || raw.AutoAccepted),
+      tatStartAt: T(raw.tatStartAt || raw.TatStartAt || acceptedAt),
+      totalUnits: totalUnits,
+      doneUnits: doneUnits,
+      pendingUnits: pendingUnits,
+      desig: desigByEmail(assignedToEmail),
+      changeCount: Number(raw.changeCount || raw.ChangeCount || 0) || 0,
+      rawSql: row
+    };
+    try{ if(typeof ensureTaskMeta === "function") t = ensureTaskMeta(t); }catch(e){}
+    return t;
+  }
+
+  function taskToDb(t){
+    var id = T(t.id || t.taskCode || t.taskId || "");
+    var assignedEmail = E(t.email || t.assignedToEmail || t.empEmail);
+    var assignedName = T(t.assignedToLabel || t.empName || t.assignedTo || nameByEmail(assignedEmail));
+    var byName = T(t.assignedByLabel || t.by || t.assignedBy || getCuName());
+    var byEmail = E(t.assignedByEmail || getCuEmail());
+    var status = capStatus(t.status || "Assigned");
+    var total = Number(t.totalUnits || 1) || 1;
+    var done = Number(t.doneUnits || 0) || 0;
+    var pending = Number(t.pendingUnits);
+    if(!Number.isFinite(pending)) pending = Math.max(0,total-done);
+
+    var raw = {
+      taskCode:id,
+      taskId:id,
+      TaskID:id,
+      task:T(t.task || t.title),
+      Task:T(t.task || t.title),
+      TaskName:T(t.task || t.title),
+      email:assignedEmail,
+      assignedToEmail:assignedEmail,
+      empEmail:assignedEmail,
+      empName:assignedName,
+      assignedTo:assignedName,
+      assignedToLabel:assignedName,
+      by:byName,
+      assignedBy:byName,
+      assignedByEmail:byEmail,
+      priority:T(t.priority || "Medium"),
+      status:status,
+      Status:status,
+      adate:T(t.adate || ""),
+      ddate:T(t.ddate || ""),
+      notes:T(t.notes || ""),
+      references:T(t.references || ""),
+      adCopy:T(t.adCopy || ""),
+      driveLink:T(t.driveLink || ""),
+      totalUnits:total,
+      doneUnits:done,
+      pendingUnits:pending,
+      acceptedAt:T(t.acceptedAt || ""),
+      AcceptedAt:T(t.acceptedAt || ""),
+      completedAt:T(t.completedAt || ""),
+      CompletedAt:T(t.completedAt || ""),
+      rejectedAt:T(t.rejectedAt || ""),
+      RejectedAt:T(t.rejectedAt || ""),
+      rejectReason:T(t.rejectReason || ""),
+      RejectReason:T(t.rejectReason || ""),
+      autoAccepted:!!t.autoAccepted,
+      AutoAccepted:!!t.autoAccepted,
+      tatStartAt:T(t.tatStartAt || t.acceptedAt || ""),
+      TatStartAt:T(t.tatStartAt || t.acceptedAt || ""),
+      changeCount:Number(t.changeCount || 0) || 0,
+      Timestamp:T(t.ts || new Date().toISOString())
+    };
+
+    return {
+      source_id:id,
+      title:T(t.task || t.title || "Task " + id),
+      description:[
+        "Source ID: " + id,
+        "Total Units / Count: " + total,
+        "Done Units: " + done,
+        "Pending Units: " + pending,
+        t.references ? "References: " + T(t.references) : "",
+        t.driveLink ? "Drive Link: " + T(t.driveLink) : "",
+        t.notes ? "Notes: " + T(t.notes) : ""
+      ].filter(Boolean).join("\n"),
+      assigned_by_email:byEmail || null,
+      assigned_to_email:assignedEmail || null,
+      assigned_by_name:byName || null,
+      assigned_to_name:assignedName || null,
+      priority:T(t.priority || "Medium"),
+      status:status,
+      due_date:toISODate(t.ddate),
+      start_date:toISODate(t.adate),
+      completed_at:status === "Completed" ? (new Date()).toISOString() : null,
+      task_type:T(t.taskType || ""),
+      work_link:T(t.driveLink || ""),
+      remarks:T(t.notes || ""),
+      raw_data:raw
+    };
+  }
+
+  async function upsertTaskToSupabase(t){
+    var client = await taskSB();
+    var row = taskToDb(t);
+    if(!row.source_id) throw new Error("Task source_id missing");
+    var found = await client.from("tasks").select("id,raw_data").eq("source_id", row.source_id).limit(1);
+    if(found.error) throw found.error;
+
+    if(found.data && found.data.length){
+      var prevRaw = found.data[0].raw_data || {};
+      row.raw_data = Object.assign({}, prevRaw, row.raw_data);
+      var upd = await client.from("tasks").update(row).eq("id", found.data[0].id).select("*").single();
+      if(upd.error) throw upd.error;
+      return upd.data;
+    }else{
+      var ins = await client.from("tasks").insert([row]).select("*").single();
+      if(ins.error) throw ins.error;
+      return ins.data;
+    }
+  }
+
+  async function updateTaskStatusSupabase(id, patch){
+    id = T(id);
+    if(!id) return null;
+    var client = await taskSB();
+    var found = await client.from("tasks").select("*").eq("source_id", id).limit(1);
+    if(found.error) throw found.error;
+    if(!found.data || !found.data.length){
+      var local = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === id || T(x.taskCode) === id || T(x.taskId) === id; });
+      if(local){
+        Object.assign(local, patch || {});
+        return await upsertTaskToSupabase(local);
+      }
+      return null;
+    }
+    var row = found.data[0];
+    var raw = Object.assign({}, row.raw_data || {}, safeJson(patch.raw_data || {}));
+    delete patch.raw_data;
+    var update = Object.assign({}, patch, { raw_data: raw });
+    var res = await client.from("tasks").update(update).eq("id", row.id).select("*").single();
+    if(res.error) throw res.error;
+    return res.data;
+  }
+
+  window.upgroLoadSupabaseTasksNow = async function(quiet){
+    try{
+      var client = await taskSB();
+      var res = await client.from("tasks").select("*").order("created_at", {ascending:false}).limit(5000);
+      if(res.error) throw res.error;
+      var mapped = (res.data || []).map(mapSqlTask).filter(function(t){ return !!t.id; });
+      var seen = new Set();
+      mapped = mapped.filter(function(t){
+        var key = T(t.id);
+        if(seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      try{ allTasks = mapped; }catch(e){}
+      window.allTasks = mapped;
+      try{ if(typeof populateTaskFilterOptions === "function") populateTaskFilterOptions(); }catch(e){}
+      try{ if(typeof refillEmpDropdown === "function") refillEmpDropdown(); }catch(e){}
+      try{ if(typeof buildUI === "function") buildUI(); }catch(e){}
+      try{ if(typeof renderAllTasks === "function") renderAllTasks(); }catch(e){}
+      try{ if(typeof renderMyTasks === "function") renderMyTasks(); }catch(e){}
+      var sync = el("tb-sync");
+      if(sync) sync.textContent = "🟢 Supabase · " + mapped.length + " tasks";
+      if(!quiet) toast2("✅ Supabase tasks loaded: " + mapped.length);
+      return mapped;
+    }catch(err){
+      console.error("Supabase task load failed", err);
+      if(!quiet) toast2("❌ Supabase tasks failed: " + (err.message || err));
+      return [];
+    }
+  };
+
+  var oldLoadData = window.loadData;
+  window.loadData = async function(){
+    var r;
+    try{ if(typeof oldLoadData === "function") r = await oldLoadData.apply(this, arguments); }catch(e){ console.warn("old loadData failed", e); }
+    await window.upgroLoadSupabaseTasksNow(true);
+    return r;
+  };
+
+  var oldSaveTask = window.saveTask;
+  window.saveTask = async function(){
+    var before = new Set((Array.isArray(allTasks) ? allTasks : []).map(function(t){ return T(t.id || t.taskCode || t.taskId); }));
+    var formSnapshot = {
+      task:T((el("add-task")||{value:""}).value),
+      email:E((el("add-emp")||{value:""}).value),
+      pri:T((el("add-pri")||{value:"Medium"}).value),
+      adate:T((el("add-ad")||{value:""}).value),
+      ddate:T((el("add-dd")||{value:""}).value),
+      note:T((el("add-note")||{value:""}).value),
+      references:T((el("add-ref")||{value:""}).value),
+      adCopy:T((el("add-copy")||{value:""}).value),
+      driveLink:T((el("add-drive-link")||{value:""}).value),
+      units:Number((el("add-units")||{value:"1"}).value || 1) || 1,
+      editId:T(window.editTaskId || "")
+    };
+
+    var result;
+    if(typeof oldSaveTask === "function") result = await oldSaveTask.apply(this, arguments);
+
+    var after = Array.isArray(allTasks) ? allTasks : [];
+    var saved = null;
+    if(formSnapshot.editId){
+      saved = after.find(function(t){ return T(t.id || t.taskCode || t.taskId) === formSnapshot.editId; });
+    }
+    if(!saved){
+      saved = after.find(function(t){
+        var id = T(t.id || t.taskCode || t.taskId);
+        return !before.has(id) && E(t.email || t.assignedToEmail || t.empEmail) === formSnapshot.email;
+      });
+    }
+    if(!saved){
+      var id = formSnapshot.editId || ("TASK-" + Date.now().toString(36).toUpperCase());
+      saved = {
+        id:id, taskCode:id, taskId:id,
+        task:formSnapshot.task,
+        title:formSnapshot.task,
+        email:formSnapshot.email,
+        assignedToEmail:formSnapshot.email,
+        empEmail:formSnapshot.email,
+        empName:nameByEmail(formSnapshot.email),
+        assignedTo:nameByEmail(formSnapshot.email),
+        assignedToLabel:displayName(nameByEmail(formSnapshot.email), formSnapshot.email, desigByEmail(formSnapshot.email)),
+        by:getCuName(),
+        assignedBy:getCuName(),
+        assignedByEmail:getCuEmail(),
+        priority:formSnapshot.pri,
+        status:"assigned",
+        adate:formSnapshot.adate,
+        ddate:formSnapshot.ddate,
+        notes:formSnapshot.note,
+        references:formSnapshot.references,
+        adCopy:formSnapshot.adCopy,
+        driveLink:formSnapshot.driveLink,
+        totalUnits:formSnapshot.units,
+        doneUnits:0,
+        pendingUnits:formSnapshot.units,
+        ts:new Date().toISOString(),
+        desig:desigByEmail(formSnapshot.email)
+      };
+    }
+
+    try{
+      await upsertTaskToSupabase(saved);
+      await window.upgroLoadSupabaseTasksNow(true);
+      toast2("✅ Task saved in Supabase and portal");
+    }catch(err){
+      console.error("Supabase save failed", err);
+      toast2("⚠ Email sent, but Supabase task save failed: " + (err.message || err));
+    }
+    return result;
+  };
+
+  var oldQAccept = window.qAccept;
+  window.qAccept = async function(id, task, em, adate, ddate, isAuto){
+    saveAppsUrl();
+    var now = new Date().toLocaleString("en-IN");
+    try{
+      var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === T(id); });
+      if(t){ t.status = "in progress"; t.acceptedAt = now; t.tatStartAt = now; t.autoAccepted = !!isAuto; }
+      await updateTaskStatusSupabase(id, {
+        status:"In Progress",
+        raw_data:{ status:"In Progress", Status:"In Progress", acceptedAt:now, AcceptedAt:now, tatStartAt:now, TatStartAt:now, autoAccepted:!!isAuto, AutoAccepted:!!isAuto }
+      });
+    }catch(err){ console.error("Supabase accept failed", err); }
+    var r = oldQAccept ? await oldQAccept.apply(this, arguments) : undefined;
+    await window.upgroLoadSupabaseTasksNow(true);
+    return r;
+  };
+
+  var oldQReject = window.qReject;
+  window.qReject = async function(id){
+    var reason = "";
+    var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === T(id); });
+    if(!t) return oldQReject ? oldQReject.apply(this, arguments) : undefined;
+
+    // Use old prompt flow, but intercept prompt result by doing our own flow to keep Supabase exact.
+    reason = (prompt("Reject reason likho:","") || "").trim();
+    if(!reason){ toast2("⚠ Reject reason required"); return; }
+    var now = new Date().toLocaleString("en-IN");
+    t.status = "rejected"; t.rejectedAt = now; t.rejectReason = reason;
+    try{ if(typeof statusOverrides !== "undefined") statusOverrides.set(id,{status:"rejected",rejectedAt:now,rejectReason:reason}); }catch(e){}
+    try{ if(typeof buildUI === "function") buildUI(); }catch(e){}
+    try{
+      await updateTaskStatusSupabase(id, {
+        status:"Rejected",
+        remarks:reason,
+        raw_data:{ status:"Rejected", Status:"Rejected", rejectedAt:now, RejectedAt:now, rejectReason:reason, RejectReason:reason }
+      });
+      await fetch(APPS_URL,{method:"POST",body:JSON.stringify({action:"rejectTask",id:id,RejectReason:reason,rejectReason:reason,status:"Rejected",Status:"Rejected"})}).catch(function(){});
+      toast2("⛔ Task rejected");
+      await window.upgroLoadSupabaseTasksNow(true);
+    }catch(err){
+      console.error(err);
+      toast2("❌ Reject sync failed: " + (err.message || err));
+    }
+  };
+
+  var oldQDone = window.qDone;
+  window.qDone = async function(id){
+    var nowIso = new Date().toISOString();
+    var nowText = new Date().toLocaleString("en-IN");
+    try{
+      var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === T(id); });
+      if(t){ t.status = "completed"; t.completedAt = nowText; }
+      await updateTaskStatusSupabase(id, {
+        status:"Completed",
+        completed_at:nowIso,
+        raw_data:{ status:"Completed", Status:"Completed", completedAt:nowText, CompletedAt:nowText }
+      });
+    }catch(err){ console.error("Supabase done failed", err); }
+    var r = oldQDone ? await oldQDone.apply(this, arguments) : undefined;
+    await window.upgroLoadSupabaseTasksNow(true);
+    return r;
+  };
+
+  var oldSubmitWork = window.submitWork;
+  window.submitWork = async function(){
+    var taskId = T((el("sub-task")||{value:""}).value);
+    var status = T((el("sub-stat")||{value:"Completed"}).value);
+    var notes = T((el("sub-notes")||{value:""}).value);
+    var driveLink = "";
+    try{ if(typeof getAllDriveLinks === "function") driveLink = getAllDriveLinks(); }catch(e){}
+    var result = oldSubmitWork ? await oldSubmitWork.apply(this, arguments) : undefined;
+    try{
+      var st = status === "Completed" ? "Completed" : "In Progress";
+      var t = (Array.isArray(allTasks) ? allTasks : []).find(function(x){ return T(x.id) === taskId; });
+      if(t){ t.status = uiStatus(st); t.driveLink = driveLink || t.driveLink; t.notes = notes || t.notes; }
+      await updateTaskStatusSupabase(taskId, {
+        status:st,
+        work_link:driveLink || null,
+        remarks:notes || null,
+        completed_at:st === "Completed" ? new Date().toISOString() : null,
+        raw_data:{ status:st, Status:st, driveLink:driveLink, DriveLink:driveLink, notes:notes, Notes:notes, completedAt:st === "Completed" ? new Date().toLocaleString("en-IN") : "" }
+      });
+      await window.upgroLoadSupabaseTasksNow(true);
+    }catch(err){ console.error("Supabase submitWork failed", err); }
+    return result;
+  };
+
+  async function autoAcceptDueTasks(){
+    try{
+      var list = Array.isArray(allTasks) ? allTasks : [];
+      var now = Date.now();
+      for(var i=0; i<list.length; i++){
+        var t = list[i];
+        var st = uiStatus(t.status);
+        if(st !== "assigned") continue;
+        if(t.acceptedAt || t.autoAccepted) continue;
+        try{ if(typeof taskBelongsToCurrentUser === "function" && !taskBelongsToCurrentUser(t)) continue; }catch(e){}
+        var created = t.ts || t.created_at || (t.rawSql && t.rawSql.created_at) || t.adate || "";
+        var d = new Date(created);
+        if(isNaN(d)) {
+          try{ if(typeof parseTaskTimestamp === "function") d = parseTaskTimestamp(t); }catch(e){}
+        }
+        if(!d || isNaN(d)) continue;
+        if(now - d.getTime() >= 20*60*1000){
+          await window.qAccept(t.id, (typeof getTaskDisplayName === "function" ? getTaskDisplayName(t) : t.task), t.email, t.adate, t.ddate, true);
+        }
+      }
+    }catch(err){ console.error("Auto accept failed", err); }
+  }
+  window.upgroProcessAutoAcceptsNow = autoAcceptDueTasks;
+
+  // Direct meeting button handler with exact backend error.
+  async function directGenerateMeetFinal(){
+    saveAppsUrl();
+    var st = el("ug-meet-auto-status"), loc = el("mtg-loc");
+    var title = T((el("mtg-title")||{value:""}).value);
+    var date = T((el("mtg-date")||{value:""}).value);
+    var time = T((el("mtg-time")||{value:""}).value);
+    if(!title){ toast2("⚠ Meeting title required"); return ""; }
+    if(!date || !time){ toast2("⚠ Date and time required"); return ""; }
+    var attendees = [];
+    try{
+      attendees = Array.from(selectedAttendees || []).map(function(x){
+        var emp = (typeof empByEmail === "function" ? empByEmail(x) : null) || {};
+        return {email:x, name:emp.name || x, desig:emp.desig || emp.role || "Team"};
+      });
+    }catch(e){}
+    var dur = T((el("mtg-dur")||{value:"30 minutes"}).value);
+    var mins = parseInt((dur.match(/\d+/)||["30"])[0],10)||30;
+    if(/hour|hr/i.test(dur)) mins *= 60;
+    var payload = { action:"createCalendarMeeting", title:title, datetime:date+"T"+time, durationMinutes:mins, attendeeList:attendees, agenda:T((el("mtg-agenda")||{value:""}).value), notes:T((el("mtg-notes")||{value:""}).value), organizer:getCuName() };
+    try{
+      if(st) st.textContent = "Generating Google Meet link...";
+      var res = await fetch(APPS_URL, { method:"POST", body:JSON.stringify(payload) });
+      var raw = await res.text();
+      var d = {};
+      try{ d = JSON.parse(raw); }catch(e){}
+      var link = d.meetLink || d.hangoutLink || d.conferenceLink || d.link || d.url || "";
+      if(link && /meet\.google\.com/i.test(link)){
+        if(loc) loc.value = link;
+        if(st) st.textContent = "✅ Google Meet link generated and added.";
+        toast2("✅ Google Meet link generated");
+        return link;
+      }
+      var detail = d.error || d.message || raw.slice(0,180) || "No meetLink returned";
+      if(st) st.textContent = "❌ Meet backend error: " + detail;
+      console.error("Meet backend did not return link:", d, raw);
+      toast2("❌ Meet backend error. Apps Script deploy/new version check karo.");
+      return "";
+    }catch(err){
+      console.error(err);
+      if(st) st.textContent = "❌ Meet fetch failed: " + (err.message || err);
+      toast2("❌ Meet fetch failed");
+      return "";
+    }
+  }
+  window.ugGenerateMeetLinkFromModal = directGenerateMeetFinal;
+
+  function bindMeetButton(){
+    saveAppsUrl();
+    var b = el("ug-meet-generate-now");
+    if(b) b.onclick = function(e){ if(e) e.preventDefault(); return directGenerateMeetFinal(); };
+  }
+
+  var oldOpenMeeting = window.openAddMeeting;
+  window.openAddMeeting = function(){
+    var r = oldOpenMeeting ? oldOpenMeeting.apply(this, arguments) : undefined;
+    setTimeout(bindMeetButton,50);
+    setTimeout(bindMeetButton,300);
+    return r;
+  };
+
+  var oldSaveMeeting = window.saveMeeting;
+  window.saveMeeting = async function(){
+    saveAppsUrl();
+    try{
+      var chk = el("mtg-auto-meet"), loc = el("mtg-loc");
+      if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value || "")){
+        await directGenerateMeetFinal();
+      }
+    }catch(e){ console.warn(e); }
+    return oldSaveMeeting ? oldSaveMeeting.apply(this, arguments) : undefined;
+  };
+
+  var oldInitApp = window.initApp;
+  if(typeof oldInitApp === "function"){
+    window.initApp = function(){
+      var r = oldInitApp.apply(this, arguments);
+      setTimeout(function(){ window.upgroLoadSupabaseTasksNow(true); },700);
+      setTimeout(autoAcceptDueTasks,2000);
+      return r;
+    };
+  }
+
+  document.addEventListener("DOMContentLoaded", function(){
+    saveAppsUrl();
+    setTimeout(function(){ window.upgroLoadSupabaseTasksNow(true); },1000);
+    setTimeout(bindMeetButton,1200);
+    setInterval(function(){ autoAcceptDueTasks(); },60000);
+  });
+
+  saveAppsUrl();
+  setTimeout(function(){ window.upgroLoadSupabaseTasksNow(true); },1600);
+  setInterval(bindMeetButton,2000);
+})();
+</script>
+
 </body>
 </html>
