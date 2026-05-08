@@ -6926,7 +6926,7 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(fillAssignDro
      Keeps existing UI. Replaces Web App URL login/employee data.
      ========================================================= */
   const SUPABASE_URL = 'https://lseqfkpwdzqzamypsewc.supabase.co';
-  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzZXFma3B3ZHpxemFteXBzZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNDUzNTAsImV4cCI6MjA5MzcyMTM1MH0.Y3JPOd8xhgaAatdFu3YQHE8wdOvTRKuZuNHLafxouDY';
+  const SUPABASE_ANON_KEY = 'sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ';
   const SQL_CACHE_KEY = 'upgro_sql_employee_cache_v1';
 
   let sbClient = null;
@@ -7652,7 +7652,7 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(fillAssignDro
   'use strict';
 
   const UPGRO_SUPABASE_URL = 'https://lseqfkpwdzqzamypsewc.supabase.co';
-  const UPGRO_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxzZXFma3B3ZHpxemFteXBzZXdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNDUzNTAsImV4cCI6MjA5MzcyMTM1MH0.Y3JPOd8xhgaAatdFu3YQHE8wdOvTRKuZuNHLafxouDY';
+  const UPGRO_SUPABASE_ANON_KEY = 'sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ';
 
   let upgroSB = null;
   const q = id => document.getElementById(id);
@@ -8034,5 +8034,423 @@ document.addEventListener('DOMContentLoaded',function(){setTimeout(fillAssignDro
 })();
 
 </script>
+
+<script>
+/* Supabase key diagnostic — safe helper */
+window.checkSupabaseConnectionNow = async function(){
+  try{
+    const url = "https://lseqfkpwdzqzamypsewc.supabase.co";
+    const key = "sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ";
+    if(!window.supabase || !window.supabase.createClient){
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+        s.onload = resolve;
+        s.onerror = () => reject(new Error('Supabase library load failed'));
+        document.head.appendChild(s);
+      });
+    }
+    const sb = window.supabase.createClient(url, key);
+    const emp = await sb.from('employees').select('id,email,name').limit(3);
+    const task = await sb.from('tasks').select('id,title,status').limit(3);
+    console.log('Supabase employees test:', emp);
+    console.log('Supabase tasks test:', task);
+    if(emp.error || task.error) throw (emp.error || task.error);
+    alert('Supabase connected. Employees sample: ' + (emp.data||[]).length + ', Tasks sample: ' + (task.data||[]).length);
+    return {employees: emp, tasks: task};
+  }catch(e){
+    console.error('Supabase connection check failed:', e);
+    alert('Supabase connection failed: ' + (e.message || e));
+    throw e;
+  }
+};
+</script>
+
+
+<style>
+/* =========================================================
+   UPGRO PATCH — Classical PDF + Clickable Employee KPIs
+   Scope: only report PDF/export styling and employee KPI view filter.
+   ========================================================= */
+.report-card{
+  position:relative;
+  overflow:hidden;
+  border:1px solid #dbe3ef;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.96),rgba(248,251,255,.96));
+}
+.report-card::before{
+  content:'';
+  position:absolute;
+  left:0;top:0;bottom:0;width:4px;
+  background:linear-gradient(180deg,#0B84FF,#00B67A);
+}
+.report-card:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(15,23,42,.10)}
+.report-title{letter-spacing:-.2px}
+.pdf-premium-btn{
+  background:linear-gradient(135deg,#091a2d,#123761)!important;
+  color:#fff!important;
+  border-color:#0b2f58!important;
+  box-shadow:0 8px 22px rgba(8,25,45,.22);
+}
+.pdf-premium-btn:hover{filter:brightness(1.04);transform:translateY(-1px)}
+.emp-kpi-click{cursor:pointer;position:relative;user-select:none}
+.emp-kpi-click:hover{transform:translateY(-2px);box-shadow:var(--sh1);border-color:rgba(11,132,255,.35)}
+.emp-kpi-click.act{outline:2px solid rgba(11,132,255,.18);border-color:var(--blue);background:linear-gradient(180deg,#fff,#F7FBFF)}
+.emp-kpi-click.act::after{
+  content:'Viewing';
+  position:absolute;right:10px;top:8px;
+  font-size:9px;font-weight:800;color:var(--blue);
+  background:#EFF6FF;border:1px solid rgba(11,132,255,.18);
+  border-radius:999px;padding:2px 7px;
+}
+.emp-kpi-add{
+  cursor:pointer;
+  background:linear-gradient(135deg,#0B84FF,#1565C0)!important;
+  color:#fff!important;
+  border-color:rgba(11,132,255,.35)!important;
+}
+.emp-kpi-add .tctr-v,.emp-kpi-add .tctr-l{color:#fff!important}
+.emp-kpi-sub{font-size:9px;color:var(--muted2);margin-top:3px}
+.emp-kpi-add .emp-kpi-sub{color:rgba(255,255,255,.74)}
+.emp-view-chip{
+  display:inline-flex;align-items:center;gap:6px;
+  background:#fff;border:1px solid var(--border);border-radius:999px;
+  padding:4px 10px;font-size:11px;font-weight:700;color:var(--text2);
+}
+.emp-view-chip b{color:var(--blue)}
+</style>
+
+<script>
+/* =========================================================
+   UPGRO PATCH — Classical Analytics PDF and Employee KPI filters
+   ========================================================= */
+(function(){
+  const EMP_FILTER_LABELS = {
+    all:'All Employees',
+    active:'Active Employees',
+    inactive:'Inactive Employees',
+    admin:'Admins',
+    manager:'Assigners / Managers',
+    user:'Users'
+  };
+
+  function safeToast(msg){ try{ if(typeof toast==='function') toast(msg); else console.log(msg); }catch(e){ console.log(msg); } }
+  function $id(id){ return document.getElementById(id); }
+  function n(v){ return String(v==null?'':v).trim(); }
+  function mail(v){ return n(v).toLowerCase(); }
+  function empList(){
+    try{ if(typeof initEmpReg==='function') initEmpReg(); }catch(e){}
+    try{ return Array.isArray(empReg) ? empReg : (Array.isArray(window.empReg) ? window.empReg : []); }catch(e){ return Array.isArray(window.empReg) ? window.empReg : []; }
+  }
+  function empName(e){
+    try{ return typeof normalizeDisplayName==='function' ? normalizeDisplayName(e.name,e.email,e.desig) : (e.name || e.email); }
+    catch(_e){ return e.name || e.email || 'Employee'; }
+  }
+  function empIni(name){
+    try{ return typeof ini==='function' ? ini(name) : String(name||'E').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
+    catch(_e){ return 'E'; }
+  }
+  function isManagerEmp(e){
+    try{ return typeof computeManagerFlag==='function' ? computeManagerFlag(e) : !!e.isManager; }
+    catch(_e){ return !!e.isManager; }
+  }
+
+  window.setEmpKpiFilter = function(type){
+    window.empKpiFilter = type || 'all';
+    if(typeof renderEmpList === 'function') renderEmpList();
+    const label = EMP_FILTER_LABELS[window.empKpiFilter] || 'Employees';
+    const fp = $id('emp-fp');
+    if(fp && !editEmpEmail && window.empKpiFilter !== 'add'){
+      fp.innerHTML = `<div style="text-align:center;padding:44px 20px;color:var(--muted)">
+        <div style="font-size:36px;margin-bottom:10px">👥</div>
+        <div style="font-weight:800;margin-bottom:6px;color:var(--text)">${label}</div>
+        <div style="font-size:12px">Left list is now filtered. Select any employee to view/edit details.</div>
+      </div>`;
+    }
+  };
+
+  const oldSelectNewEmp = window.selectNewEmp;
+  window.selectNewEmp = function(){
+    window.empKpiFilter = 'all';
+    if(typeof oldSelectNewEmp === 'function') return oldSelectNewEmp.apply(this, arguments);
+  };
+
+  const originalRenderEmpList = window.renderEmpList;
+  window.renderEmpList = function(){
+    const list = empList();
+    const q = (($id('emp-q')||{value:''}).value || '').toLowerCase();
+    const currentFilter = window.empKpiFilter || 'all';
+
+    const counters = $id('emp-counters');
+    if(counters){
+      const active = list.filter(e=>e.active!==false);
+      const inactive = list.filter(e=>e.active===false);
+      const admins = list.filter(e=>!!e.isAdmin);
+      const managers = list.filter(e=>isManagerEmp(e));
+      const users = list.filter(e=>!e.isAdmin && !isManagerEmp(e));
+      const tile = (key, cls, value, label, sub) => `
+        <div class="tctr ${cls} emp-kpi-click ${currentFilter===key?'act':''}" onclick="setEmpKpiFilter('${key}')">
+          <div class="tctr-v">${value}</div>
+          <div class="tctr-l">${label}</div>
+          <div class="emp-kpi-sub">${sub||'Click to view'}</div>
+        </div>`;
+      counters.innerHTML =
+        tile('all','tctr-blue',list.length,'Total Employees','Click to view all') +
+        tile('active','tctr-green',active.length,'Active','Click to view active') +
+        tile('inactive','tctr-red',inactive.length,'Inactive','Click to view inactive') +
+        tile('admin','tctr-purple',admins.length,'Admins','Click to view admins') +
+        tile('manager','tctr-orange',managers.length,'Assigners','Click to view assigners') +
+        `<div class="tctr emp-kpi-add" onclick="selectNewEmp()">
+          <div class="tctr-v">＋</div><div class="tctr-l">Add Employee</div><div class="emp-kpi-sub">Create directly here</div>
+        </div>`;
+    }
+
+    const cont = $id('emp-items');
+    if(!cont){
+      if(typeof originalRenderEmpList === 'function') return originalRenderEmpList.apply(this, arguments);
+      return;
+    }
+
+    let filtered = list.slice();
+    if(currentFilter === 'active') filtered = filtered.filter(e=>e.active!==false);
+    if(currentFilter === 'inactive') filtered = filtered.filter(e=>e.active===false);
+    if(currentFilter === 'admin') filtered = filtered.filter(e=>!!e.isAdmin);
+    if(currentFilter === 'manager') filtered = filtered.filter(e=>isManagerEmp(e));
+    if(currentFilter === 'user') filtered = filtered.filter(e=>!e.isAdmin && !isManagerEmp(e));
+
+    if(q){
+      filtered = filtered.filter(e =>
+        empName(e).toLowerCase().includes(q) ||
+        mail(e.email).includes(q) ||
+        n(e.role).toLowerCase().includes(q) ||
+        n(e.desig).toLowerCase().includes(q) ||
+        n(e.designation).toLowerCase().includes(q)
+      );
+    }
+
+    cont.innerHTML = '';
+    if(!filtered.length){
+      cont.innerHTML = `<div style="padding:16px;color:var(--muted)">
+        No employees found for <b>${EMP_FILTER_LABELS[currentFilter] || 'this filter'}</b>.
+        <div style="margin-top:10px"><button class="btn bp bsm" onclick="selectNewEmp()">＋ Add Employee</button></div>
+      </div>`;
+      return;
+    }
+
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;position:sticky;top:0;background:#fff;z-index:2';
+    header.innerHTML = `<span class="emp-view-chip"><b>${filtered.length}</b> ${EMP_FILTER_LABELS[currentFilter] || 'Employees'}</span>
+      <button class="btn bp bxs" onclick="selectNewEmp()">＋ Add</button>`;
+    cont.appendChild(header);
+
+    filtered.forEach(e=>{
+      const div=document.createElement('div');
+      div.className='ei'+(typeof editEmpEmail!=='undefined' && editEmpEmail===e.email?' act':'');
+      div.onclick=()=>{ if(typeof selectEmp==='function') selectEmp(e.email); };
+      const roleBadge=e.isAdmin?'<span class="role-badge rb-admin">Admin</span>':isManagerEmp(e)?'<span class="role-badge rb-manager">Manager</span>':'<span class="role-badge rb-user">User</span>';
+      const bg = e.bg || '#0B84FF';
+      div.innerHTML=`<div class="ei-av" style="background:${bg}">${empIni(e.name)}</div>
+        <div class="ei-info"><div class="ei-name">${empName(e)} ${roleBadge}</div><div class="ei-role">${e.desig || e.designation || e.role || 'Team'} · ${e.email||''}</div></div>
+        <div class="ei-dot" title="${e.active===false?'Inactive':'Active'}" style="background:${e.active!==false?'#00B67A':'#E53935'}"></div>`;
+      cont.appendChild(div);
+    });
+  };
+
+  function ensureJSPDFPremium(){
+    if(!(window.jspdf && window.jspdf.jsPDF)) throw new Error('jsPDF library not loaded');
+    return window.jspdf.jsPDF;
+  }
+
+  function drawFooter(pdf, pageW, pageH, pageNo){
+    pdf.setDrawColor(226,232,240);
+    pdf.line(42, pageH-44, pageW-42, pageH-44);
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(8);
+    pdf.setTextColor(100,116,139);
+    pdf.text('UpGro Media — Mission Control', 42, pageH-28);
+    pdf.text('Page ' + pageNo, pageW-74, pageH-28);
+  }
+
+  function drawHeader(pdf, title, subtitle, pageW){
+    pdf.setFillColor(8,25,45);
+    pdf.rect(0,0,pageW,96,'F');
+    try{ pdf.addImage(UPGRO_LOGO_DATA, 'JPEG', 42, 24, 46, 46); }catch(e){}
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(19);
+    pdf.setTextColor(255,255,255);
+    pdf.text(title, 104, 43);
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(9);
+    pdf.setTextColor(203,213,225);
+    pdf.text(subtitle, 104, 61);
+    pdf.setDrawColor(245,158,11);
+    pdf.setLineWidth(1.2);
+    pdf.line(104, 76, pageW-42, 76);
+  }
+
+  function card(pdf, x, y, w, h, label, value, accent){
+    const c = accent || [11,132,255];
+    pdf.setFillColor(255,255,255);
+    pdf.roundedRect(x,y,w,h,10,10,'F');
+    pdf.setDrawColor(226,232,240);
+    pdf.roundedRect(x,y,w,h,10,10);
+    pdf.setFillColor(c[0],c[1],c[2]);
+    pdf.roundedRect(x,y,5,h,3,3,'F');
+    pdf.setFont('helvetica','bold');
+    pdf.setFontSize(18);
+    pdf.setTextColor(15,23,42);
+    pdf.text(String(value), x+16, y+27);
+    pdf.setFont('helvetica','normal');
+    pdf.setFontSize(9);
+    pdf.setTextColor(100,116,139);
+    pdf.text(String(label), x+16, y+45, {maxWidth:w-24});
+  }
+
+  // Override only PDF design. Excel/report data remains untouched.
+  window.downloadAnalyticsPDF = function(){
+    (async ()=>{
+      try{
+        const jsPDF = ensureJSPDFPremium();
+        const pdf = new jsPDF('p','pt','a4');
+        const analytics = (typeof buildAnalyticsRows === 'function') ? buildAnalyticsRows() : {summary:[{}], matrix:[], tasks:[]};
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const exportedOn = new Date().toLocaleString('en-IN');
+        const range = (($id('an-range')||{value:'all'}).value || 'all').toUpperCase();
+        const preparedBy = (window.cu && cu.name) ? cu.name : 'UpGro Media';
+
+        // Cover / executive summary
+        pdf.setFillColor(247,249,252);
+        pdf.rect(0,0,pageW,pageH,'F');
+        drawHeader(pdf, 'Analytics Performance Report', 'A clean operational summary of work, delivery and team performance', pageW);
+
+        pdf.setFont('helvetica','bold');
+        pdf.setFontSize(24);
+        pdf.setTextColor(8,25,45);
+        pdf.text('UpGro Media', 42, 148);
+        pdf.setFontSize(14);
+        pdf.setTextColor(51,65,85);
+        pdf.text('Mission Control Analytics', 42, 172);
+
+        pdf.setFont('helvetica','normal');
+        pdf.setFontSize(10);
+        pdf.setTextColor(100,116,139);
+        pdf.text(`Generated on: ${exportedOn}`, 42, 198);
+        pdf.text(`Report range: ${range}`, 42, 214);
+        pdf.text(`Prepared by: ${preparedBy}`, 42, 230);
+
+        const summary = analytics.summary[0] || {};
+        const total = summary['Total Tasks'] || 0;
+        const completed = summary['Completed'] || 0;
+        const inProgress = summary['In Progress'] || 0;
+        const overdue = summary['Overdue'] || 0;
+        const completionRate = total ? Math.round((completed / total) * 100) : 0;
+
+        card(pdf,42,270,118,62,'Total Tasks',total,[11,132,255]);
+        card(pdf,174,270,118,62,'Completed',completed,[0,182,122]);
+        card(pdf,306,270,118,62,'In Progress',inProgress,[245,158,11]);
+        card(pdf,438,270,118,62,'Overdue',overdue,[229,57,53]);
+
+        pdf.setFillColor(255,255,255);
+        pdf.roundedRect(42,365,514,104,14,14,'F');
+        pdf.setDrawColor(226,232,240);
+        pdf.roundedRect(42,365,514,104,14,14);
+        pdf.setFont('helvetica','bold');
+        pdf.setFontSize(13);
+        pdf.setTextColor(8,25,45);
+        pdf.text('Executive Snapshot', 62, 394);
+        pdf.setFont('helvetica','normal');
+        pdf.setFontSize(10);
+        pdf.setTextColor(71,85,105);
+        pdf.text(`Completion rate is ${completionRate}%. This report summarises current task movement, employee workload and performance trends based on the active dashboard filters.`, 62, 417, {maxWidth:470});
+        pdf.text('Use this report for weekly review, employee workload discussion and pending-work follow-up.', 62, 446, {maxWidth:470});
+
+        drawFooter(pdf,pageW,pageH,1);
+
+        // Performance matrix
+        pdf.addPage();
+        pdf.setFillColor(247,249,252); pdf.rect(0,0,pageW,pageH,'F');
+        drawHeader(pdf, 'Employee Performance Matrix', 'Ranked view of assigned work, completed work, overdue load and delivery score', pageW);
+        let y = 126;
+        const headers = ['#','Employee','Role','Assigned','Done','Overdue','On-Time','Score'];
+        const colX = [44,76,202,318,372,424,480,540];
+        pdf.setFillColor(236,242,250);
+        pdf.roundedRect(42,y,514,26,7,7,'F');
+        pdf.setFont('helvetica','bold');
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(51,65,85);
+        headers.forEach((h,i)=>pdf.text(h,colX[i],y+17));
+        y += 34;
+        pdf.setFont('helvetica','normal');
+        (analytics.matrix || []).slice(0,24).forEach((r,idx)=>{
+          if(y > pageH-72){
+            drawFooter(pdf,pageW,pageH,pdf.internal.getNumberOfPages());
+            pdf.addPage();
+            pdf.setFillColor(247,249,252); pdf.rect(0,0,pageW,pageH,'F');
+            drawHeader(pdf, 'Employee Performance Matrix', 'Continued', pageW);
+            y = 126;
+          }
+          if(idx%2===0){ pdf.setFillColor(255,255,255); pdf.roundedRect(42,y-12,514,24,5,5,'F'); }
+          pdf.setFontSize(8.7);
+          pdf.setTextColor(15,23,42);
+          const vals = [r['Rank'],r['Employee'],r['Role'],r['Assigned'],r['Completed'],r['Overdue'],String(r['On-Time %'])+'%',r['Score']];
+          vals.forEach((val,i)=>pdf.text(String(val ?? ''), colX[i], y+4, {maxWidth:i===1?116:i===2?100:45}));
+          y += 24;
+        });
+        drawFooter(pdf,pageW,pageH,pdf.internal.getNumberOfPages());
+
+        // Charts page
+        function addChartSpread(title, sub, ids){
+          pdf.addPage();
+          pdf.setFillColor(247,249,252); pdf.rect(0,0,pageW,pageH,'F');
+          drawHeader(pdf, title, sub, pageW);
+          let cy = 122;
+          ids.forEach((id,idx)=>{
+            const cv = $id(id);
+            if(!cv) return;
+            try{
+              const img = cv.toDataURL('image/png', 1.0);
+              pdf.setFillColor(255,255,255);
+              pdf.roundedRect(42, cy, 514, 222, 14, 14, 'F');
+              pdf.setDrawColor(226,232,240);
+              pdf.roundedRect(42, cy, 514, 222, 14, 14);
+              pdf.setFont('helvetica','bold');
+              pdf.setFontSize(10);
+              pdf.setTextColor(8,25,45);
+              pdf.text(id.replace('c-','').toUpperCase() + ' CHART', 62, cy+24);
+              pdf.addImage(img, 'PNG', 62, cy+38, 474, 164);
+              cy += 244;
+            }catch(e){ console.warn(e); }
+          });
+          drawFooter(pdf,pageW,pageH,pdf.internal.getNumberOfPages());
+        }
+
+        addChartSpread('Performance Charts', 'Visual charts captured from the analytics dashboard', ['c-perf','c-score']);
+        addChartSpread('Distribution Charts', 'Workload, status and priority distribution', ['c-work','c-stat']);
+
+        pdf.save(`UpGro_Classical_Analytics_Report_${typeof TODAY!=='undefined'?TODAY:new Date().toISOString().slice(0,10)}.pdf`);
+        safeToast('✅ Classical Analytics PDF downloaded');
+      }catch(err){
+        console.error(err);
+        safeToast('❌ Analytics PDF failed: ' + (err.message || err));
+      }
+    })();
+  };
+
+  // Upgrade existing PDF buttons without changing layout.
+  setTimeout(function(){
+    document.querySelectorAll('button').forEach(btn=>{
+      const t = (btn.textContent || '').toLowerCase();
+      if(t.includes('analytics pdf') || t.includes('download pdf')){
+        btn.classList.add('pdf-premium-btn');
+        if(!btn.querySelector('.pdf-ico')) btn.insertAdjacentHTML('afterbegin','<span class="pdf-ico">PDF</span>');
+      }
+    });
+    if(typeof renderEmpList === 'function') renderEmpList();
+  }, 900);
+})();
+</script>
+
 </body>
 </html>
