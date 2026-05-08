@@ -8452,5 +8452,578 @@ window.checkSupabaseConnectionNow = async function(){
 })();
 </script>
 
+
+<script>
+/* =========================================================
+   UPGRO PATCH — Supabase employees only + Meet URL resolver
+   Scope:
+   1) Employee section shows only active employees from Supabase employees table.
+   2) No local/old duplicate employees in employee section/dropdowns.
+   3) Add/Edit/Remove employee writes to Supabase employees table.
+   4) Meet generation reads saved Apps Script URL from every old/new key.
+   ========================================================= */
+(function(){
+  if(window.__UPGRO_SUPABASE_EMPLOYEE_ONLY_FINAL__) return;
+  window.__UPGRO_SUPABASE_EMPLOYEE_ONLY_FINAL__ = true;
+
+  const SUPA_URL = 'https://lseqfkpwdzqzamypsewc.supabase.co';
+  const SUPA_KEY = 'sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ';
+
+  const EMP_FILTERS = {
+    all:'All Active Employees',
+    admin:'Admins',
+    manager:'Managers / Assigners',
+    user:'Users'
+  };
+
+  function q(id){ return document.getElementById(id); }
+  function txt(v){ return String(v == null ? '' : v).trim(); }
+  function email(v){ return txt(v).toLowerCase(); }
+  function okEmail(v){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email(v)); }
+  function say(m){ try{ if(typeof toast === 'function') toast(m); else console.log(m); }catch(e){ console.log(m); } }
+  function initials(name){
+    try{ if(typeof ini === 'function') return ini(name); }catch(e){}
+    return txt(name || 'E').split(/\s+/).map(x=>x[0]).join('').toUpperCase().slice(0,2) || 'E';
+  }
+  function esc(v){
+    return String(v ?? '').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+  function color(i){
+    try{ if(Array.isArray(CLRS) && CLRS.length) return CLRS[i % CLRS.length]; }catch(e){}
+    return ['#0B84FF','#7C3AED','#00B67A','#F59E0B','#E53935','#0E9F8E'][i % 6];
+  }
+
+  async function loadSupabase(){
+    if(window.supabase && window.supabase.createClient) return;
+    await new Promise((resolve,reject)=>{
+      const existing = document.querySelector('script[data-upgro-supabase]');
+      if(existing){ existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
+      s.async = true;
+      s.setAttribute('data-upgro-supabase','1');
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Supabase library load failed'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function sb(){
+    await loadSupabase();
+    if(!window.__upgroSupabaseFinalClient){
+      window.__upgroSupabaseFinalClient = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+        auth:{ persistSession:true, autoRefreshToken:true }
+      });
+    }
+    return window.__upgroSupabaseFinalClient;
+  }
+
+  function mapRole(row){
+    const r = txt(row.role || 'User');
+    if(/^admin$/i.test(r)) return 'Admin';
+    if(/^manager$/i.test(r)) return 'Manager';
+    return 'User';
+  }
+
+  function isActiveRow(row){
+    const s = txt(row.status || 'Active').toLowerCase();
+    return !(s === 'inactive' || s === 'removed' || s === 'deleted' || s === 'false' || s === '0');
+  }
+
+  function mapEmployee(row, i){
+    const role = mapRole(row);
+    const em = email(row.email);
+    return {
+      id: row.id,
+      empId: row.emp_id || row.empId || '',
+      name: txt(row.name) || em.split('@')[0],
+      email: em,
+      pass: '',
+      role: role,
+      desig: txt(row.designation || row.desig || role || 'Team'),
+      designation: txt(row.designation || row.desig || ''),
+      dept: txt(row.department || row.dept || ''),
+      department: txt(row.department || row.dept || ''),
+      status: txt(row.status || 'Active'),
+      active: isActiveRow(row),
+      isAdmin: role === 'Admin',
+      isManager: role === 'Manager',
+      bg: color(i),
+      joinDate: row.created_at || ''
+    };
+  }
+
+  function dedupeByEmail(list){
+    const map = new Map();
+    (list || []).forEach((e,i)=>{
+      const em = email(e.email);
+      if(!em) return;
+      const old = map.get(em);
+      if(!old || Number(e.empId || 999999) < Number(old.empId || 999999)){
+        map.set(em, {...e, email:em, bg:e.bg || color(i)});
+      }
+    });
+    return [...map.values()].sort((a,b)=>
+      (Number(a.empId || 999999) - Number(b.empId || 999999)) ||
+      String(a.name).localeCompare(String(b.name))
+    );
+  }
+
+  function lockEmployeesToSupabase(activeList, allList){
+    const active = dedupeByEmail(activeList || []).filter(e => e.active !== false);
+    const all = dedupeByEmail(allList || activeList || []);
+
+    window.__upgroSupabaseAllEmployees = all;
+    window.__upgroSupabaseActiveEmployees = active;
+    window.__upgroEmployeeSource = 'supabase_only';
+
+    try{ empReg = active.slice(); }catch(e){}
+    try{ window.empReg = active.slice(); }catch(e){}
+
+    // Clear only local employee-cache duplicates. Backend/task history remains untouched.
+    try{ localStorage.removeItem('upgro_emp_dyn'); }catch(e){}
+    try{ localStorage.removeItem('upgro_roles_v3'); }catch(e){}
+    try{ localStorage.setItem('upgro_sql_employee_cache_v1', JSON.stringify(active)); }catch(e){}
+
+    // Make old directory match Supabase only, so old local employees do not return.
+    try{
+      if(typeof USERS !== 'undefined'){
+        const keep = new Set(active.map(e=>e.email));
+        Object.keys(USERS).forEach(k=>{
+          if(!keep.has(email(k))) delete USERS[k];
+        });
+        active.forEach(e=>{
+          USERS[e.email] = {
+            ...(USERS[e.email] || {}),
+            email:e.email,
+            name:e.name,
+            pass:(USERS[e.email] && USERS[e.email].pass) || '',
+            role:e.role,
+            desig:e.desig,
+            isAdmin:e.isAdmin,
+            isManager:e.isManager,
+            active:true,
+            bg:e.bg
+          };
+        });
+      }
+    }catch(e){}
+
+    try{ if(typeof syncUserDirectoryFromRegistry === 'function') syncUserDirectoryFromRegistry(); }catch(e){}
+  }
+
+  async function fetchSupabaseEmployees(){
+    const client = await sb();
+    const {data, error} = await client.from('employees').select('*').order('emp_id', {ascending:true});
+    if(error) throw error;
+    const all = (data || []).map(mapEmployee).filter(e => okEmail(e.email));
+    const active = all.filter(e => e.active !== false);
+    lockEmployeesToSupabase(active, all);
+    return active;
+  }
+
+  window.refreshSupabaseEmployeesOnlyNow = async function(){
+    try{
+      const list = await fetchSupabaseEmployees();
+      if(typeof refillEmpDropdown === 'function') refillEmpDropdown();
+      if(typeof buildAttendeeList === 'function') buildAttendeeList((q('mtg-att-q') || {value:''}).value || '');
+      if(typeof renderEmpList === 'function') renderEmpList();
+      if(typeof buildUI === 'function') buildUI();
+      say('✅ Supabase employees loaded: ' + list.length);
+      return list;
+    }catch(err){
+      console.error(err);
+      say('❌ Supabase employees load failed: ' + (err.message || err));
+      return [];
+    }
+  };
+
+  const oldInitEmpReg = window.initEmpReg;
+  window.initEmpReg = function(){
+    if(Array.isArray(window.__upgroSupabaseActiveEmployees) && window.__upgroSupabaseActiveEmployees.length){
+      try{ empReg = window.__upgroSupabaseActiveEmployees.slice(); }catch(e){}
+      try{ window.empReg = window.__upgroSupabaseActiveEmployees.slice(); }catch(e){}
+      return window.__upgroSupabaseActiveEmployees;
+    }
+    return typeof oldInitEmpReg === 'function' ? oldInitEmpReg.apply(this, arguments) : [];
+  };
+
+  function currentEmployeeList(){
+    if(Array.isArray(window.__upgroSupabaseActiveEmployees) && window.__upgroSupabaseActiveEmployees.length){
+      return window.__upgroSupabaseActiveEmployees.slice();
+    }
+    try{ return Array.isArray(empReg) ? empReg.slice() : []; }catch(e){ return Array.isArray(window.empReg) ? window.empReg.slice() : []; }
+  }
+
+  function employeeMatchesFilter(e, f){
+    if(f === 'admin') return !!e.isAdmin;
+    if(f === 'manager') return !!e.isManager;
+    if(f === 'user') return !e.isAdmin && !e.isManager;
+    return true;
+  }
+
+  window.setEmpKpiFilter = function(type){
+    window.empKpiFilter = type || 'all';
+    if(typeof renderEmpList === 'function') renderEmpList();
+  };
+
+  window.renderEmpList = function(){
+    const source = currentEmployeeList().filter(e => e.active !== false);
+    const list = dedupeByEmail(source);
+    try{ empReg = list.slice(); window.empReg = list.slice(); }catch(e){}
+
+    const qv = (q('emp-q') || {value:''}).value.toLowerCase();
+    const filter = window.empKpiFilter || 'all';
+    const counters = q('emp-counters');
+    const cont = q('emp-items');
+
+    const admins = list.filter(e=>e.isAdmin);
+    const managers = list.filter(e=>e.isManager);
+    const users = list.filter(e=>!e.isAdmin && !e.isManager);
+
+    if(counters){
+      const tile = (key, cls, count, label) => `
+        <div class="tctr ${cls} emp-kpi-click ${filter===key?'act':''}" onclick="setEmpKpiFilter('${key}')">
+          <div class="tctr-v">${count}</div>
+          <div class="tctr-l">${label}</div>
+          <div class="emp-kpi-sub">Click to view</div>
+        </div>`;
+      counters.innerHTML =
+        tile('all','tctr-blue',list.length,'Active Employees') +
+        tile('admin','tctr-purple',admins.length,'Admins') +
+        tile('manager','tctr-orange',managers.length,'Managers') +
+        tile('user','tctr-green',users.length,'Users') +
+        `<div class="tctr emp-kpi-add" onclick="selectNewEmp()">
+          <div class="tctr-v">＋</div>
+          <div class="tctr-l">Add Employee</div>
+          <div class="emp-kpi-sub">Add in Supabase</div>
+        </div>`;
+    }
+
+    if(!cont) return;
+
+    let filtered = list.filter(e => employeeMatchesFilter(e, filter));
+    if(qv){
+      filtered = filtered.filter(e =>
+        String(e.name||'').toLowerCase().includes(qv) ||
+        String(e.email||'').toLowerCase().includes(qv) ||
+        String(e.role||'').toLowerCase().includes(qv) ||
+        String(e.desig||'').toLowerCase().includes(qv) ||
+        String(e.empId||'').toLowerCase().includes(qv)
+      );
+    }
+
+    cont.innerHTML = '';
+    const header = document.createElement('div');
+    header.style.cssText = 'padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;position:sticky;top:0;background:#fff;z-index:2';
+    header.innerHTML = `<span class="emp-view-chip"><b>${filtered.length}</b> ${EMP_FILTERS[filter] || 'Employees'}</span>
+      <button class="btn bp bxs" onclick="selectNewEmp()">＋ Add</button>`;
+    cont.appendChild(header);
+
+    if(!filtered.length){
+      const empty = document.createElement('div');
+      empty.style.cssText = 'padding:18px;color:var(--muted)';
+      empty.innerHTML = 'No active Supabase employees found for this view.';
+      cont.appendChild(empty);
+      return;
+    }
+
+    filtered.forEach(e=>{
+      const div = document.createElement('div');
+      div.className = 'ei' + ((typeof editEmpEmail !== 'undefined' && editEmpEmail === e.email) ? ' act' : '');
+      div.onclick = () => { if(typeof selectEmp === 'function') selectEmp(e.email); };
+      const roleBadge = e.isAdmin ? '<span class="role-badge rb-admin">Admin</span>' :
+        e.isManager ? '<span class="role-badge rb-manager">Manager</span>' :
+        '<span class="role-badge rb-user">User</span>';
+      div.innerHTML = `<div class="ei-av" style="background:${e.bg || '#0B84FF'}">${initials(e.name)}</div>
+        <div class="ei-info">
+          <div class="ei-name">${esc(e.name)} ${roleBadge}</div>
+          <div class="ei-role">${esc(e.desig || e.role || 'Team')} · ${esc(e.email)}</div>
+        </div>
+        <div class="ei-dot" title="Active Supabase employee" style="background:#00B67A"></div>`;
+      cont.appendChild(div);
+    });
+  };
+
+  function inferDepartment(desig, role){
+    const s = (desig + ' ' + role).toLowerCase();
+    if(/admin|ea|mis|ceo/.test(s)) return 'Admin';
+    if(/video|editor|production/.test(s)) return 'Production';
+    if(/graphic|design|designer/.test(s)) return 'Design';
+    if(/web|tech|developer/.test(s)) return 'Tech';
+    if(/account|finance/.test(s)) return 'Finance';
+    return 'Marketing';
+  }
+
+  function roleFromForm(){
+    const isAdmin = !!(q('ef-admin') || {checked:false}).checked;
+    const isMgr = !!(q('ef-mgr') || {checked:false}).checked;
+    if(isAdmin) return 'Admin';
+    if(isMgr) return 'Manager';
+    return 'User';
+  }
+
+  async function nextEmpId(client){
+    try{
+      const {data} = await client.from('employees').select('emp_id').order('emp_id', {ascending:false}).limit(1);
+      const max = data && data[0] && Number(data[0].emp_id);
+      return Number.isFinite(max) ? max + 1 : 1001;
+    }catch(e){ return 1001; }
+  }
+
+  async function upsertEmployeeToSupabase(record){
+    const client = await sb();
+    const em = email(record.email);
+    const {data:existing, error:findErr} = await client.from('employees').select('*').eq('email', em).maybeSingle();
+    if(findErr) throw findErr;
+    if(existing && existing.id){
+      const {error} = await client.from('employees').update(record).eq('id', existing.id);
+      if(error) throw error;
+      return existing.id;
+    }else{
+      const emp_id = record.emp_id || await nextEmpId(client);
+      const {error} = await client.from('employees').insert([{...record, emp_id}]);
+      if(error) throw error;
+      return emp_id;
+    }
+  }
+
+  window.addNewEmp = async function(){
+    const name = txt((q('ef-n') || {value:''}).value);
+    const em = email((q('ef-e') || {value:''}).value);
+    const desig = txt((q('ef-d') || {value:'Team'}).value) || 'Team';
+    const role = roleFromForm();
+
+    if(!name || !em){ say('⚠ Name and email required'); return; }
+    if(!okEmail(em)){ say('⚠ Valid email required'); return; }
+
+    try{
+      await upsertEmployeeToSupabase({
+        name:name,
+        email:em,
+        designation:desig,
+        department:inferDepartment(desig, role),
+        role:role,
+        status:'Active'
+      });
+      await window.refreshSupabaseEmployeesOnlyNow();
+      if(typeof selectEmp === 'function') selectEmp(em);
+      say('✅ Employee added in Supabase: ' + name);
+    }catch(err){
+      console.error(err);
+      say('❌ Employee add failed: ' + (err.message || err));
+    }
+  };
+
+  window.saveEmp = async function(oldEmail){
+    const oldEm = email(oldEmail || (q('ef-e') || {value:''}).value);
+    const name = txt((q('ef-n') || {value:''}).value);
+    const desig = txt((q('ef-d') || {value:'Team'}).value) || 'Team';
+    const active = !!(q('ef-ac') || {checked:true}).checked;
+    const role = roleFromForm();
+
+    if(!name || !oldEm){ say('⚠ Name and email required'); return; }
+
+    try{
+      await upsertEmployeeToSupabase({
+        name:name,
+        email:oldEm,
+        designation:desig,
+        department:inferDepartment(desig, role),
+        role:role,
+        status:active ? 'Active' : 'Inactive'
+      });
+      await window.refreshSupabaseEmployeesOnlyNow();
+      if(active && typeof selectEmp === 'function') selectEmp(oldEm);
+      else {
+        const fp=q('emp-fp');
+        if(fp) fp.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:32px;margin-bottom:8px">✓</div><div style="font-weight:700">Employee updated in Supabase.</div><div style="font-size:12px;margin-top:4px">Inactive employees are hidden from employee section.</div></div>';
+      }
+      say('✅ Employee updated in Supabase');
+    }catch(err){
+      console.error(err);
+      say('❌ Employee update failed: ' + (err.message || err));
+    }
+  };
+
+  window.delEmp = async function(em){
+    em = email(em);
+    if(!em) return;
+    if(!confirm('Remove '+em+' from active employees? Task history will remain.')) return;
+    try{
+      const client = await sb();
+      const {error} = await client.from('employees').update({status:'Inactive'}).eq('email', em);
+      if(error) throw error;
+      try{ editEmpEmail = null; }catch(e){}
+      await window.refreshSupabaseEmployeesOnlyNow();
+      const fp=q('emp-fp');
+      if(fp) fp.innerHTML='<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:32px;margin-bottom:8px">✓</div><div style="font-weight:700">Employee removed from active section.</div><div style="font-size:12px;margin-top:4px">Backend task history remains safe.</div></div>';
+      say('🗑 Employee hidden from active list');
+    }catch(err){
+      console.error(err);
+      say('❌ Remove failed: ' + (err.message || err));
+    }
+  };
+
+  // Keep attendee and task dropdowns using Supabase active employees only.
+  const oldRefillEmpDropdown = window.refillEmpDropdown;
+  window.refillEmpDropdown = function(){
+    const list = currentEmployeeList().filter(e=>e.active!==false);
+    const ids = ['t-assignee','emp-filter','at-assigned-to','at-assigned-by','an-emp'];
+    ids.forEach(id=>{
+      const el = q(id);
+      if(!el) return;
+      const keep = el.value;
+      const first = el.querySelector('option[value=""]') ? el.querySelector('option[value=""]').outerHTML : '<option value="">All</option>';
+      el.innerHTML = first + list.map(e=>`<option value="${esc(e.email)}">${esc(e.name)} — ${esc(e.desig || e.role || 'Team')}</option>`).join('');
+      if(keep && [...el.options].some(o=>o.value===keep)) el.value = keep;
+    });
+    try{ if(typeof oldRefillEmpDropdown === 'function') oldRefillEmpDropdown.apply(this, arguments); }catch(e){}
+  };
+
+  /* ------------------ Google Meet URL resolver fix ------------------ */
+  function validScriptUrl(v){ return /^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec/i.test(txt(v)); }
+
+  window.upgroResolveAppsScriptUrl = function(){
+    let val = '';
+    try{ if(typeof SURL !== 'undefined' && validScriptUrl(SURL)) val = SURL; }catch(e){}
+    const keys = ['ugv4_url','upgro_url','upgro_script_url','apps_script_url','upgro_apps_script_url','mission_control_script_url'];
+    for(const k of keys){
+      if(!val && validScriptUrl(localStorage.getItem(k))) val = localStorage.getItem(k);
+    }
+    try{
+      for(let i=0;i<localStorage.length && !val;i++){
+        const k = localStorage.key(i);
+        const v = localStorage.getItem(k);
+        if(validScriptUrl(v)) val = v;
+      }
+    }catch(e){}
+    const inp = q('url-in');
+    if(!val && inp && validScriptUrl(inp.value)) val = inp.value;
+
+    if(val){
+      try{ SURL = val; }catch(e){}
+      keys.forEach(k=>{ try{ localStorage.setItem(k, val); }catch(e){} });
+      if(inp) inp.value = val;
+      const st = q('url-st');
+      if(st) st.textContent = '✅ Apps Script URL detected automatically.';
+    }
+    return val || '';
+  };
+
+  async function generateMeetLinkFixed(){
+    const loc=q('mtg-loc'), st=q('ug-meet-auto-status');
+    const title=txt((q('mtg-title')||{value:''}).value);
+    const date=(q('mtg-date')||{value:''}).value;
+    const time=(q('mtg-time')||{value:''}).value;
+    const url = window.upgroResolveAppsScriptUrl();
+
+    if(!title){ say('⚠ Meeting title required'); return ''; }
+    if(!date || !time){ say('⚠ Date and time required'); return ''; }
+    if(!url){
+      if(st) st.textContent = '❌ Apps Script URL not found. Existing saved URL was missing, so Google Meet cannot be created.';
+      say('❌ Apps Script URL missing. Paste it once in Settings, then this button will auto-pick it every time.');
+      return '';
+    }
+
+    try{ if(st) st.textContent='Generating Google Meet link...'; }catch(e){}
+    let attendees=[];
+    try{
+      attendees = Array.from(selectedAttendees || []).map(function(em){
+        let emp={};
+        try{ emp = typeof empByEmail === 'function' ? (empByEmail(em) || {}) : {}; }catch(e){}
+        return {email:em, name:emp.name || em, desig:emp.desig || emp.role || 'Team'};
+      });
+    }catch(e){}
+
+    const dur=(q('mtg-dur')||{value:'30 minutes'}).value;
+    const mins=parseInt(String(dur||'30').match(/\d+/)?.[0]||'30',10)||30;
+    const payload={
+      action:'createCalendarMeeting',
+      title:title,
+      datetime:date+'T'+time,
+      durationMinutes:mins,
+      attendeeList:attendees,
+      agenda:(q('mtg-agenda')||{value:''}).value || '',
+      notes:(q('mtg-notes')||{value:''}).value || '',
+      organizer:(typeof currentUser === 'function' && currentUser() && currentUser().name) || 'UpGro Media'
+    };
+
+    try{
+      const res = await fetch(url,{method:'POST',body:JSON.stringify(payload),signal:AbortSignal.timeout(25000)});
+      const raw = await res.text();
+      let d={}; try{ d=JSON.parse(raw); }catch(e){}
+      const link = d.meetLink || d.hangoutLink || d.conferenceLink || d.link || '';
+      if(link && /meet\.google\.com/i.test(link)){
+        if(loc) loc.value = link;
+        if(st) st.textContent = '✅ Google Meet link generated and added.';
+        say('✅ Google Meet link generated');
+        return link;
+      }
+      if(st) st.textContent='❌ Meet link not returned. Apps Script createCalendarMeeting action needs to return meetLink.';
+      say('❌ Backend did not return Meet link');
+    }catch(err){
+      console.error(err);
+      if(st) st.textContent='❌ Meet generation failed: '+(err.message||err);
+      say('❌ Meet generation failed');
+    }
+    return '';
+  }
+
+  window.ugGenerateMeetLinkFromModal = generateMeetLinkFixed;
+
+  const oldSaveMeetingFinal = window.saveMeeting;
+  window.saveMeeting = async function(){
+    try{
+      const chk=q('mtg-auto-meet'), loc=q('mtg-loc');
+      window.upgroResolveAppsScriptUrl();
+      if(chk && chk.checked && loc && !/meet\.google\.com/i.test(loc.value || '')){
+        await generateMeetLinkFixed();
+      }
+    }catch(e){ console.warn('fixed meet pre-generation skipped', e); }
+    return oldSaveMeetingFinal ? oldSaveMeetingFinal.apply(this, arguments) : undefined;
+  };
+
+  function rebindMeetButton(){
+    const b=q('ug-meet-generate-now');
+    if(b) b.onclick = function(e){ if(e)e.preventDefault(); return generateMeetLinkFixed(); };
+    window.upgroResolveAppsScriptUrl();
+  }
+
+  const oldOpenAddMeetingFinal = window.openAddMeeting;
+  window.openAddMeeting = function(){
+    const r = oldOpenAddMeetingFinal ? oldOpenAddMeetingFinal.apply(this, arguments) : undefined;
+    setTimeout(rebindMeetButton,80);
+    setTimeout(rebindMeetButton,250);
+    return r;
+  };
+
+  // Initial load
+  const oldDoLoginFinal = window.doLogin;
+  if(typeof oldDoLoginFinal === 'function'){
+    window.doLogin = async function(){
+      const r = await oldDoLoginFinal.apply(this, arguments);
+      setTimeout(()=>window.refreshSupabaseEmployeesOnlyNow(), 400);
+      setTimeout(()=>window.refreshSupabaseEmployeesOnlyNow(), 1300);
+      return r;
+    };
+  }
+
+  const oldInitAppFinal = window.initApp;
+  if(typeof oldInitAppFinal === 'function'){
+    window.initApp = function(){
+      const r = oldInitAppFinal.apply(this, arguments);
+      setTimeout(()=>window.refreshSupabaseEmployeesOnlyNow(), 500);
+      return r;
+    };
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    setTimeout(()=>window.refreshSupabaseEmployeesOnlyNow(), 1000);
+    setTimeout(rebindMeetButton, 1200);
+  });
+})();
+</script>
+
 </body>
 </html>
