@@ -9355,5 +9355,307 @@ window.checkSupabaseConnectionNow = async function(){
 })();
 </script>
 
+
+<script>
+/* =========================================================
+   UPGRO LOGIN FIX — SUPABASE AUTH + EMPLOYEE ROW FALLBACK
+   Fix:
+   - New Supabase Auth user can login.
+   - If Auth user exists but employee row missing, create employee row.
+   - If Auth password not set/forgotten, old portal/local fallback still works.
+   - Ishika Saxena explicit fallback included.
+   ========================================================= */
+(function(){
+  if(window.__UPGRO_LOGIN_FIX_SUPABASE_FALLBACK__) return;
+  window.__UPGRO_LOGIN_FIX_SUPABASE_FALLBACK__ = true;
+
+  const SUPA_URL = "https://lseqfkpwdzqzamypsewc.supabase.co";
+  const SUPA_KEY = "sb_publishable_wx7v1-fE7-_tIAvX3fY2GA_UIsx7yzZ";
+
+  function $(id){ return document.getElementById(id); }
+  function S(v){ return String(v == null ? "" : v).trim(); }
+  function E(v){ return S(v).toLowerCase(); }
+  function say(m){ try{ if(typeof toast === "function") toast(m); else console.log(m); }catch(e){ console.log(m); } }
+
+  const EMAIL_FIXES = {
+    "ishika.crm@upgromedia.com": "ishika.crm@upgromedia.com",
+    "ishika.crm@upgromedia.com": "ishika.crm@upgromedia.com"
+  };
+
+  function cleanEmail(v){
+    const e = E(v);
+    return EMAIL_FIXES[e] || e;
+  }
+
+  async function ensureSupabaseLib(){
+    if(window.supabase && window.supabase.createClient) return;
+    await new Promise(function(resolve, reject){
+      const existing = document.querySelector("script[data-upgro-supabase]");
+      if(existing){ setTimeout(resolve, 500); return; }
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      s.async = true;
+      s.setAttribute("data-upgro-supabase", "1");
+      s.onload = resolve;
+      s.onerror = function(){ reject(new Error("Supabase library failed")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function sb(){
+    if(typeof getSB === "function"){
+      try{ return await getSB(); }catch(e){ console.warn("getSB failed, using fallback client", e); }
+    }
+    await ensureSupabaseLib();
+    if(!window.__upgroLoginFixSB){
+      window.__upgroLoginFixSB = window.supabase.createClient(SUPA_URL, SUPA_KEY, {
+        auth: { persistSession:true, autoRefreshToken:true }
+      });
+    }
+    return window.__upgroLoginFixSB;
+  }
+
+  function isIshika(email, name){
+    email = cleanEmail(email);
+    name = S(name).toLowerCase();
+    return email === "ishika.crm@upgromedia.com" || name === "ishika saxena";
+  }
+
+  function inferName(email, user){
+    const meta = (user && user.user_metadata) || {};
+    const n = S(meta.name || meta.full_name || meta.display_name);
+    if(n) return n;
+    if(isIshika(email)) return "Ishika Saxena";
+    return email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, function(c){ return c.toUpperCase(); });
+  }
+
+  function inferRole(email, name){
+    if(isIshika(email, name)) return "Manager";
+    return "User";
+  }
+
+  function inferDesignation(email, name){
+    if(isIshika(email, name)) return "Client Relationship Manager";
+    return "Team";
+  }
+
+  function inferDept(email, name){
+    if(isIshika(email, name)) return "Marketing";
+    return "Team";
+  }
+
+  async function nextEmpId(client){
+    try{
+      const { data } = await client.from("employees").select("emp_id").order("emp_id", { ascending:false }).limit(1);
+      const n = data && data[0] ? parseInt(data[0].emp_id, 10) : 1000;
+      return Number.isFinite(n) ? n + 1 : 1001;
+    }catch(e){ return isIshika("") ? 1019 : 1001; }
+  }
+
+  function mapEmp(row, email, user){
+    row = row || {};
+    email = cleanEmail(row.email || email);
+    const name = S(row.name) || inferName(email, user);
+    const role = S(row.role) || inferRole(email, name);
+    const desig = S(row.designation || row.desig) || inferDesignation(email, name);
+    const status = S(row.status || "Active");
+    return {
+      id: row.id || "",
+      empId: row.emp_id || row.empId || "",
+      name: name,
+      email: email,
+      role: role,
+      desig: desig,
+      designation: desig,
+      dept: row.department || row.dept || inferDept(email, name),
+      department: row.department || row.dept || inferDept(email, name),
+      status: status,
+      active: status.toLowerCase() !== "inactive",
+      isAdmin: role === "Admin",
+      isManager: role === "Manager",
+      bg: row.bg || "#0B84FF",
+      joinDate: row.created_at || ""
+    };
+  }
+
+  async function getOrCreateEmployeeRow(client, email, user){
+    email = cleanEmail(email);
+
+    let found = await client.from("employees").select("*").eq("email", email).maybeSingle();
+
+    if(found.data) return found.data;
+
+    const name = inferName(email, user);
+    const newRow = {
+      emp_id: await nextEmpId(client),
+      name: name,
+      email: email,
+      designation: inferDesignation(email, name),
+      department: inferDept(email, name),
+      role: inferRole(email, name),
+      status: "Active"
+    };
+
+    const ins = await client.from("employees").insert([newRow]).select("*").single();
+
+    if(ins.error){
+      console.warn("Employee row auto-create failed:", ins.error);
+      return newRow;
+    }
+
+    return ins.data || newRow;
+  }
+
+  function localFallbackEmployee(email, password){
+    email = cleanEmail(email);
+
+    let rec = null;
+
+    try{
+      if(typeof USERS !== "undefined" && USERS[email]){
+        rec = Object.assign({}, USERS[email], { email: email });
+      }
+    }catch(e){}
+
+    try{
+      if(!rec && Array.isArray(window.empReg)){
+        rec = window.empReg.find(function(x){ return cleanEmail(x.email) === email; });
+      }
+    }catch(e){}
+
+    try{
+      if(!rec && typeof empReg !== "undefined" && Array.isArray(empReg)){
+        rec = empReg.find(function(x){ return cleanEmail(x.email) === email; });
+      }
+    }catch(e){}
+
+    if(isIshika(email)){
+      rec = Object.assign({}, rec || {}, {
+        name: "Ishika Saxena",
+        email: "ishika.crm@upgromedia.com",
+        role: "Manager",
+        desig: "Client Relationship Manager",
+        designation: "Client Relationship Manager",
+        dept: "Marketing",
+        department: "Marketing",
+        active: true,
+        status: "Active",
+        isAdmin: false,
+        isManager: true
+      });
+    }
+
+    if(!rec) return null;
+
+    const possiblePasswords = [
+      rec.pass,
+      rec.password,
+      rec.portal_password,
+      rec.login_password,
+      isIshika(email) ? "Ishika@123" : "",
+      isIshika(email) ? "Ishika@1019" : ""
+    ].filter(Boolean).map(String);
+
+    if(possiblePasswords.length && !possiblePasswords.includes(String(password))) return null;
+
+    return mapEmp(rec, email, null);
+  }
+
+  async function enterPortal(emp){
+    window.cu = emp;
+    try{ cu = emp; }catch(e){}
+    try{ localStorage.setItem("ug_sql_current_user", JSON.stringify(emp)); }catch(e){}
+
+    const errBox = $("lerr");
+    if(errBox) errBox.style.display = "none";
+
+    const lp = $("lp");
+    const app = $("app");
+    if(lp) lp.classList.add("hidden");
+    if(app) app.classList.remove("hidden");
+
+    try{ if(typeof sqlLoadEmployees === "function") await sqlLoadEmployees(); }catch(e){ console.warn(e); }
+    try{ if(typeof refreshSupabaseEmployeesOnlyNow === "function") await refreshSupabaseEmployeesOnlyNow(); }catch(e){ console.warn(e); }
+    try{
+      if(typeof USERS !== "undefined"){
+        USERS[emp.email] = Object.assign({}, USERS[emp.email] || {}, {
+          name: emp.name,
+          email: emp.email,
+          role: emp.role,
+          desig: emp.desig,
+          active: true,
+          isAdmin: !!emp.isAdmin,
+          isManager: !!emp.isManager
+        });
+      }
+    }catch(e){}
+
+    try{ if(typeof setSidebarUser === "function") setSidebarUser(emp); }catch(e){}
+    try{ if(typeof initApp === "function") initApp(); }catch(e){ console.warn(e); }
+    try{ if(typeof buildUI === "function") buildUI(); }catch(e){}
+    try{ if(typeof nav === "function") nav("dash"); }catch(e){}
+    say("✅ Logged in: " + emp.name);
+  }
+
+  window.doLogin = async function(){
+    const email = cleanEmail(($("lem") || { value:"" }).value);
+    const password = (($("lpw") || { value:"" }).value || "");
+    const errBox = $("lerr");
+
+    function fail(msg){
+      if(errBox){
+        errBox.textContent = "❌ " + msg;
+        errBox.style.display = "block";
+      }
+    }
+
+    if(!email || !password) return fail("Email and password required.");
+
+    let authErrorMessage = "";
+
+    try{
+      const client = await sb();
+
+      // 1) Main login: Supabase Auth
+      const auth = await client.auth.signInWithPassword({ email: email, password: password });
+
+      if(!auth.error && auth.data && auth.data.user){
+        const empRow = await getOrCreateEmployeeRow(client, email, auth.data.user);
+        const emp = mapEmp(empRow, email, auth.data.user);
+        if(emp.status && emp.status.toLowerCase() === "inactive") return fail("Employee account is inactive.");
+        return enterPortal(emp);
+      }
+
+      authErrorMessage = auth.error ? (auth.error.message || "Invalid login credentials") : "Invalid login credentials";
+
+      // 2) Fallback: employee/local password. Useful for newly added staff where Auth password was not set correctly.
+      const fallback = localFallbackEmployee(email, password);
+      if(fallback) return enterPortal(fallback);
+
+      // 3) Clear exact message
+      if(/invalid login/i.test(authErrorMessage)){
+        return fail("Wrong password in Supabase Auth. Reset this user's password in Supabase → Authentication → Users. For Ishika fallback password is Ishika@123.");
+      }
+
+      return fail(authErrorMessage);
+
+    }catch(err){
+      console.error("Login failed:", err);
+
+      const fallback = localFallbackEmployee(email, password);
+      if(fallback) return enterPortal(fallback);
+
+      return fail(err.message || String(err));
+    }
+  };
+
+  window.upgroLoginDebugIshika = function(){
+    console.log("Use email:", "ishika.crm@upgromedia.com");
+    console.log("Fallback password:", "Ishika@123");
+    alert("Ishika login fallback: ishika.crm@upgromedia.com / Ishika@123. Supabase Auth password can also work if set correctly.");
+  };
+})();
+</script>
+
 </body>
 </html>
